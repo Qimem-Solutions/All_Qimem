@@ -30,7 +30,7 @@ type AppShellProps = {
   /** Default search bar in header when `headerCenter` is not provided */
   searchPlaceholder?: string;
   showAppsShortcut?: boolean;
-  /** Read-only mode: banner and no primary sidebar action (HRMS view-only users). */
+  /** Read-only mode: shows a banner; nav and primary action still work when they are links (browse-only). */
   readOnly?: boolean;
 };
 
@@ -85,11 +85,16 @@ export function AppShell({
             );
           })}
         </nav>
-        {primaryAction && !readOnly ? (
+        {primaryAction ? (
           <div className="px-3 pb-4">
             <Link
               href={primaryAction.href}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-gold py-3 text-sm font-semibold text-gold-foreground transition-colors hover:bg-gold-dim"
+              className={cn(
+                "flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-semibold transition-colors",
+                readOnly
+                  ? "border border-gold/40 bg-transparent text-gold hover:bg-gold/10"
+                  : "bg-gold text-gold-foreground hover:bg-gold-dim",
+              )}
             >
               <ChevronRight className="h-4 w-4 rotate-180" />
               {primaryAction.label}

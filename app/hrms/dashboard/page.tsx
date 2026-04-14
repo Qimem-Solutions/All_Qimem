@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { HrmsLinkButton } from "@/components/hrms/hrms-link-button";
 import {
   Megaphone,
   Trophy,
@@ -8,12 +8,15 @@ import {
   UserPlus,
   Calendar,
   Wallet,
-  FileText,
   Zap,
+  Umbrella,
+  Briefcase,
+  FileBarChart,
 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getUserContext } from "@/lib/queries/context";
-import { fetchHrmsDashboardStats } from "@/lib/queries/tenant-data";
+import { fetchHrmsDashboardStats, fetchHrmsReportsAnalytics } from "@/lib/queries/tenant-data";
+import { OrgStructureSection } from "@/components/hrms/org-structure-section";
 
 export default async function HrmsDashboardPage() {
   const ctx = await getUserContext();
@@ -32,11 +35,20 @@ export default async function HrmsDashboardPage() {
     );
   }
 
-  const s = await fetchHrmsDashboardStats(tenantId);
+  const [s, analytics] = await Promise.all([
+    fetchHrmsDashboardStats(tenantId),
+    fetchHrmsReportsAnalytics(tenantId),
+  ]);
   const name = ctx.fullName ?? "there";
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
+      <OrgStructureSection
+        rows={analytics.departments}
+        totalEmployees={analytics.totalEmployees}
+        error={analytics.error}
+      />
+
       <div>
         <h1 className="text-2xl font-semibold text-white [font-family:var(--font-outfit),system-ui,sans-serif]">
           Administrator insights
@@ -90,20 +102,28 @@ export default async function HrmsDashboardPage() {
             <p className="text-sm text-zinc-500">
               No announcements stored yet — add a table or CMS when you are ready.
             </p>
-            <div className="flex gap-3 rounded-lg border border-border/60 bg-surface/50 p-4 opacity-60">
+            <HrmsLinkButton
+              href="/hrms/employees"
+              variant="secondary"
+              className="w-full justify-start !h-auto border border-border/60 bg-surface/50 py-4"
+            >
               <Trophy className="h-5 w-5 shrink-0 text-gold" />
-              <div>
-                <p className="font-medium text-white">Placeholder</p>
-                <p className="text-sm text-zinc-500">Connect content to real data when available.</p>
+              <div className="text-left">
+                <p className="font-medium text-white">Employee directory</p>
+                <p className="text-sm font-normal text-zinc-500">Open roster and search staff.</p>
               </div>
-            </div>
-            <div className="flex gap-3 rounded-lg border border-border/60 bg-surface/50 p-4 opacity-60">
+            </HrmsLinkButton>
+            <HrmsLinkButton
+              href="/hrms/reports"
+              variant="secondary"
+              className="w-full justify-start !h-auto border border-border/60 bg-surface/50 py-4"
+            >
               <Shield className="h-5 w-5 shrink-0 text-gold" />
-              <div>
-                <p className="font-medium text-white">Policies</p>
-                <p className="text-sm text-zinc-500">Link HR policy docs from storage or a CMS.</p>
+              <div className="text-left">
+                <p className="font-medium text-white">HR reports</p>
+                <p className="text-sm font-normal text-zinc-500">Headcount and department exports.</p>
               </div>
-            </div>
+            </HrmsLinkButton>
           </CardContent>
         </Card>
         <Card>
@@ -113,22 +133,28 @@ export default async function HrmsDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-2">
-              <Button variant="secondary" className="justify-start gap-2" type="button" disabled>
+              <HrmsLinkButton href="/hrms/employees" variant="secondary" className="justify-start gap-2">
                 <UserPlus className="h-4 w-4" /> New hire
-              </Button>
-              <Button variant="secondary" className="justify-start gap-2" type="button" disabled>
-                <Calendar className="h-4 w-4" /> Leave request
-              </Button>
-              <Button variant="secondary" className="justify-start gap-2" type="button" disabled>
-                <Wallet className="h-4 w-4" /> Run payroll
-              </Button>
-              <Button variant="secondary" className="justify-start gap-2" type="button" disabled>
-                <FileText className="h-4 w-4" /> Audit log
-              </Button>
+              </HrmsLinkButton>
+              <HrmsLinkButton href="/hrms/time" variant="secondary" className="justify-start gap-2">
+                <Calendar className="h-4 w-4" /> Time & attendance
+              </HrmsLinkButton>
+              <HrmsLinkButton href="/hrms/payroll" variant="secondary" className="justify-start gap-2">
+                <Wallet className="h-4 w-4" /> Payroll
+              </HrmsLinkButton>
+              <HrmsLinkButton href="/hrms/leave" variant="secondary" className="justify-start gap-2">
+                <Umbrella className="h-4 w-4" /> Leave
+              </HrmsLinkButton>
+              <HrmsLinkButton href="/hrms/recruitment" variant="secondary" className="justify-start gap-2">
+                <Briefcase className="h-4 w-4" /> Recruitment
+              </HrmsLinkButton>
+              <HrmsLinkButton href="/hrms/reports" variant="secondary" className="justify-start gap-2 col-span-2">
+                <FileBarChart className="h-4 w-4" /> HR reports & exports
+              </HrmsLinkButton>
             </div>
-            <Button className="mt-4 w-full gap-2" type="button" disabled>
+            <HrmsLinkButton href="/hrms/reports" variant="primary" className="mt-4 w-full gap-2">
               <Zap className="h-4 w-4" /> System overview
-            </Button>
+            </HrmsLinkButton>
           </CardContent>
         </Card>
       </div>

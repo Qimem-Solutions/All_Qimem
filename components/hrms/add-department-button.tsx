@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createDepartmentAction } from "./actions";
+import { createDepartmentAction } from "@/lib/actions/hr-staff";
 
 export function AddDepartmentButton() {
   const router = useRouter();
@@ -54,14 +54,20 @@ export function AddDepartmentButton() {
               Add department
             </h2>
             <p className="mt-1 text-sm text-zinc-500">
-              Create a department first, then assign staff to it when you add them.
+              Create a department for your property, then assign staff when you add them.
             </p>
             <form className="mt-6 space-y-4" onSubmit={onSubmit}>
               <div>
                 <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor="dept-name">
                   Department name
                 </label>
-                <Input id="dept-name" name="name" required autoComplete="organization" placeholder="e.g. Front Office" />
+                <Input
+                  id="dept-name"
+                  name="name"
+                  required
+                  autoComplete="organization"
+                  placeholder="e.g. Front Office"
+                />
               </div>
               {error ? (
                 <p className="rounded-lg border border-red-500/30 bg-red-950/20 px-3 py-2 text-sm text-red-200">

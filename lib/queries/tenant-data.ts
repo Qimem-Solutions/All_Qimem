@@ -59,6 +59,153 @@ export async function fetchEmployees(tenantId: string) {
   return { rows, error: null };
 }
 
+/** Row for HRMS directory: employees plus tenant login profiles without an employee record. */
+export type HrmsDirectoryRow = {
+  id: string;
+  kind: "employee" | "account";
+  employee_code: string | null;
+  full_name: string;
+  email: string | null;
+  job_title: string | null;
+  status: string;
+  hire_date: string | null;
+  department_id: string | null;
+  department_name: string | null;
+};
+
+function accountJobTitleFromGlobalRole(globalRole: string | null): string {
+  switch (globalRole) {
+    case "hotel_admin":
+      return "Hotel administrator";
+    case "superadmin":
+      return "Platform superadmin";
+    case "hrms":
+      return "HR (legacy role)";
+    case "hrrm":
+      return "Rooms (legacy role)";
+    case "user":
+    default:
+      return "Staff account";
+  }
+}
+
+/**
+ * Full tenant roster for HRMS: all `employees` rows, plus `profiles` on this tenant that are not
+ * linked via `employees.user_id`. Uses the service role so the list is not limited by RLS (still
+ * scoped to `tenantId` from the signed-in user’s profile).
+ */
+export async function fetchHrmsDirectory(
+  tenantId: string,
+): Promise<{ rows: HrmsDirectoryRow[]; departments: { id: string; name: string }[]; error: string | null }> {
+  const ctx = await getUserContext();
+  if (!ctx?.userId || ctx.tenantId !== tenantId) {
+    return { rows: [], departments: [], error: "Not authorized." };
+  }
+
+  let admin: ReturnType<typeof createServiceRoleClient>;
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    const emp = await fetchEmployees(tenantId);
+    const depts = await fetchTenantDepartmentsForSelect(tenantId);
+    return {
+      rows: (emp.rows ?? []).map((r) => ({
+        id: r.id,
+        kind: "employee" as const,
+        employee_code: r.employee_code,
+        full_name: r.full_name,
+        email: r.email,
+        job_title: r.job_title,
+        status: r.status,
+        hire_date: r.hire_date,
+        department_id: r.department_id,
+        department_name: r.department_name,
+      })),
+      departments: depts.rows,
+      error: emp.error ?? depts.error,
+    };
+  }
+
+  const { data: employees, error: eErr } = await admin
+    .from("employees")
+    .select(
+      "id, user_id, employee_code, full_name, email, job_title, status, hire_date, department_id",
+    )
+    .eq("tenant_id", tenantId)
+    .order("full_name", { ascending: true });
+
+  if (eErr) {
+    return { rows: [], departments: [], error: eErr.message };
+  }
+
+  const { data: allDepts, error: dErr } = await admin
+    .from("departments")
+    .select("id, name")
+    .eq("tenant_id", tenantId)
+    .order("name");
+
+  if (dErr) {
+    return { rows: [], departments: [], error: dErr.message };
+  }
+
+  const deptMap = new Map((allDepts ?? []).map((d) => [d.id, d.name]));
+
+  const empRows: HrmsDirectoryRow[] = (employees ?? []).map((e) => ({
+    id: e.id,
+    kind: "employee",
+    employee_code: e.employee_code,
+    full_name: e.full_name,
+    email: e.email,
+    job_title: e.job_title,
+    status: e.status ?? "active",
+    hire_date: e.hire_date,
+    department_id: e.department_id,
+    department_name: e.department_id ? deptMap.get(e.department_id) ?? null : null,
+  }));
+
+  const linkedUserIds = new Set(
+    (employees ?? []).map((e) => e.user_id).filter((x): x is string => Boolean(x)),
+  );
+
+  const { data: profiles, error: pErr } = await admin
+    .from("profiles")
+    .select("id, full_name, global_role")
+    .eq("tenant_id", tenantId);
+
+  if (pErr) {
+    return {
+      rows: empRows.sort((a, b) => a.full_name.localeCompare(b.full_name)),
+      departments: allDepts ?? [],
+      error: pErr.message,
+    };
+  }
+
+  const accountRows: HrmsDirectoryRow[] = (profiles ?? [])
+    .filter((p) => !linkedUserIds.has(p.id))
+    .map((p) => ({
+      id: `account-${p.id}`,
+      kind: "account",
+      employee_code: null,
+      full_name: p.full_name?.trim() || "User",
+      email: null,
+      job_title: accountJobTitleFromGlobalRole(p.global_role),
+      status: "account",
+      hire_date: null,
+      department_id: null,
+      department_name: null,
+    }));
+
+  const merged = [...empRows, ...accountRows].sort((a, b) =>
+    a.full_name.localeCompare(b.full_name),
+  );
+
+  return {
+    rows: merged,
+    departments: allDepts ?? [],
+    error: null,
+  };
+}
+
 export async function fetchEmployeeStats(tenantId: string) {
   const supabase = await createClient();
   const { count, error } = await supabase
@@ -158,7 +305,19 @@ export async function fetchRatePlans(tenantId: string) {
 }
 
 export async function fetchAttendanceLogs(tenantId: string) {
-  const supabase = await createClient();
+  const ctx = await getUserContext();
+  if (!ctx?.userId || ctx.tenantId !== tenantId) {
+    return { rows: [], error: "Not authorized." };
+  }
+
+  /** Same tenant as session; service role avoids RLS hiding employees/departments on join. */
+  let supabase: Awaited<ReturnType<typeof createClient>> | ReturnType<typeof createServiceRoleClient>;
+  try {
+    supabase = createServiceRoleClient();
+  } catch {
+    supabase = await createClient();
+  }
+
   const { data: logs, error: lErr } = await supabase
     .from("attendance_logs")
     .select("id, employee_id, punch_type, punched_at")
@@ -171,20 +330,25 @@ export async function fetchAttendanceLogs(tenantId: string) {
   const empIds = [...new Set((logs ?? []).map((l) => l.employee_id))];
   if (empIds.length === 0) return { rows: [], error: null };
 
-  const { data: emps } = await supabase
+  const { data: emps, error: eErr } = await supabase
     .from("employees")
     .select("id, full_name, department_id")
+    .eq("tenant_id", tenantId)
     .in("id", empIds);
+
+  if (eErr) return { rows: [], error: eErr.message };
 
   const deptIds = [
     ...new Set((emps ?? []).map((e) => e.department_id).filter(Boolean)),
   ] as string[];
   let deptMap = new Map<string, string>();
   if (deptIds.length > 0) {
-    const { data: depts } = await supabase
+    const { data: depts, error: dErr } = await supabase
       .from("departments")
       .select("id, name")
+      .eq("tenant_id", tenantId)
       .in("id", deptIds);
+    if (dErr) return { rows: [], error: dErr.message };
     deptMap = new Map((depts ?? []).map((d) => [d.id, d.name]));
   }
 
@@ -204,7 +368,7 @@ export async function fetchAttendanceLogs(tenantId: string) {
       id: r.id,
       punch_type: r.punch_type,
       punched_at: r.punched_at,
-      employee_name: e?.name ?? "—",
+      employee_name: e?.name ?? "Unknown employee",
       department: e?.department ?? "—",
     };
   });
@@ -395,9 +559,25 @@ export async function fetchTenantUsersWithRoles(tenantId: string): Promise<{
 }
 
 export async function fetchHrmsDashboardStats(tenantId: string) {
-  const supabase = await createClient();
+  const ctx = await getUserContext();
+  if (!ctx?.userId || ctx.tenantId !== tenantId) {
+    return {
+      employeeCount: 0,
+      shiftsToday: 0,
+      punchesToday: 0,
+      error: "Not authorized.",
+    };
+  }
+
   const today = new Date().toISOString().slice(0, 10);
   const startOfDay = `${today}T00:00:00.000Z`;
+
+  let supabase: Awaited<ReturnType<typeof createClient>> | ReturnType<typeof createServiceRoleClient>;
+  try {
+    supabase = createServiceRoleClient();
+  } catch {
+    supabase = await createClient();
+  }
 
   const [emp, shifts, punches] = await Promise.all([
     supabase.from("employees").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
@@ -458,6 +638,65 @@ export async function fetchDepartmentsWithCounts(tenantId: string): Promise<{
   );
 
   return { rows, totalEmployees: totalEmployees ?? 0, error: null };
+}
+
+/**
+ * HR reports: department headcounts + total employees. Uses service role when available so counts
+ * match reality for the tenant (RLS/session quirks won’t zero out aggregates).
+ */
+export async function fetchHrmsReportsAnalytics(tenantId: string): Promise<{
+  totalEmployees: number;
+  departments: DepartmentCountRow[];
+  error: string | null;
+}> {
+  const ctx = await getUserContext();
+  if (!ctx?.userId || ctx.tenantId !== tenantId) {
+    return { totalEmployees: 0, departments: [], error: "Not authorized." };
+  }
+
+  let admin: ReturnType<typeof createServiceRoleClient>;
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    const res = await fetchDepartmentsWithCounts(tenantId);
+    return {
+      totalEmployees: res.totalEmployees,
+      departments: res.rows,
+      error: res.error,
+    };
+  }
+
+  const { data: depts, error: dErr } = await admin
+    .from("departments")
+    .select("id, name")
+    .eq("tenant_id", tenantId)
+    .order("name");
+
+  if (dErr) {
+    return { totalEmployees: 0, departments: [], error: dErr.message };
+  }
+
+  const { count: totalEmployees } = await admin
+    .from("employees")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId);
+
+  const departments: DepartmentCountRow[] = await Promise.all(
+    (depts ?? []).map(async (d) => {
+      const { count } = await admin
+        .from("employees")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
+        .eq("department_id", d.id);
+      return { id: d.id, name: d.name, employee_count: count ?? 0 };
+    }),
+  );
+
+  return {
+    totalEmployees: totalEmployees ?? 0,
+    departments,
+    error: null,
+  };
 }
 
 export async function fetchShiftsUpcoming(tenantId: string, limit = 80) {

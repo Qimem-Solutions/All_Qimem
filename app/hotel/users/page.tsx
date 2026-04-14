@@ -4,12 +4,12 @@ import { Button } from "@/components/ui/button";
 import { redirect } from "next/navigation";
 import { getUserContext } from "@/lib/queries/context";
 import {
-  fetchDepartmentsWithCounts,
+  fetchHrmsReportsAnalytics,
   fetchTenantDepartmentsForSelect,
   fetchTenantUsersWithRoles,
 } from "@/lib/queries/tenant-data";
-import { AddDepartmentButton } from "./add-department-button";
-import { CreateStaffButton } from "./create-staff-button";
+import { AddDepartmentButton } from "@/components/hrms/add-department-button";
+import { CreateStaffButton } from "@/components/hrms/create-staff-button";
 import { HotelUsersTabs } from "./hotel-users-tabs";
 
 export default async function HotelUsersPage() {
@@ -34,12 +34,16 @@ export default async function HotelUsersPage() {
     );
   }
 
-  const [{ rows: users, error }, { rows: departmentsForSelect, error: deptSelectErr }, deptCountsRes] =
+  const [{ rows: users, error }, { rows: departmentsForSelect, error: deptSelectErr }, analytics] =
     await Promise.all([
       fetchTenantUsersWithRoles(tenantId),
       fetchTenantDepartmentsForSelect(tenantId),
-      fetchDepartmentsWithCounts(tenantId),
+      fetchHrmsReportsAnalytics(tenantId),
     ]);
+  const deptCountsRes = {
+    rows: analytics.departments,
+    error: analytics.error,
+  };
 
   const roleBuckets: Record<string, number> = {};
   for (const u of users) {

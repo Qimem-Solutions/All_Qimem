@@ -1,8 +1,9 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { redirect } from "next/navigation";
 import { getUserContext } from "@/lib/queries/context";
-import { fetchDepartmentsWithCounts, fetchEmployeeStats } from "@/lib/queries/tenant-data";
+import { fetchHrmsReportsAnalytics } from "@/lib/queries/tenant-data";
+import { HrmsLinkButton } from "@/components/hrms/hrms-link-button";
+import { HrReportsToolbarClient } from "@/components/hrms/hr-reports-toolbar-client";
 
 export default async function HrReportsPage() {
   const ctx = await getUserContext();
@@ -21,10 +22,8 @@ export default async function HrReportsPage() {
     );
   }
 
-  const { count: totalEmployees, error: empErr } = await fetchEmployeeStats(tenantId);
-  const { rows: depts, totalEmployees: total2, error: deptErr } =
-    await fetchDepartmentsWithCounts(tenantId);
-  const total = total2 || totalEmployees;
+  const { totalEmployees: total, departments: depts, error: reportErr } =
+    await fetchHrmsReportsAnalytics(tenantId);
   const max = Math.max(1, ...depts.map((d) => d.employee_count));
 
   return (
@@ -35,45 +34,26 @@ export default async function HrReportsPage() {
             Analytics & insights
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500">
-            Live headcount and department breakdown from Supabase.
+            Live headcount and department breakdown from Supabase. Use exports below to download CSV.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" type="button" disabled>
-            PDF / CSV
-          </Button>
-          <Button type="button" disabled>
-            Export report
-          </Button>
+        <div className="flex flex-wrap gap-2">
+          <HrmsLinkButton href="/hrms/employees" variant="secondary">
+            Employee directory
+          </HrmsLinkButton>
+          <HrmsLinkButton href="/hrms/time" variant="secondary">
+            Time & attendance
+          </HrmsLinkButton>
         </div>
       </div>
 
-      {empErr || deptErr ? (
+      {reportErr ? (
         <p className="rounded-lg border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-200">
-          {[empErr, deptErr].filter(Boolean).join(" ")}
+          {reportErr}
         </p>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-          <CardDescription>Wire date ranges and exports to your reporting pipeline.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          <Button variant="secondary" size="sm" type="button" disabled>
-            Turnover rate
-          </Button>
-          <Button variant="secondary" size="sm" type="button" disabled>
-            All departments
-          </Button>
-          <Button variant="secondary" size="sm" type="button" disabled>
-            Date range
-          </Button>
-          <Button size="sm" type="button" disabled>
-            Apply filters
-          </Button>
-        </CardContent>
-      </Card>
+      <HrReportsToolbarClient departments={depts} totalEmployees={total} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -83,7 +63,7 @@ export default async function HrReportsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-4xl font-bold text-gold">{total}</p>
-            <p className="mt-2 text-xs text-zinc-500">employees table</p>
+            <p className="mt-2 text-xs text-zinc-500">Employee records (employees table) for this property.</p>
           </CardContent>
         </Card>
         <Card>

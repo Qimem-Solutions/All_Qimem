@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createStaffUserAction } from "./actions";
+import { createStaffUserAction } from "@/lib/actions/hr-staff";
 import type { ServiceAccessLevel } from "@/lib/auth/service-access";
 
 const LEVELS: { value: ServiceAccessLevel; label: string }[] = [

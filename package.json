@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed:superadmin": "node --env-file=.env.local scripts/seed-superadmin.mjs"
+    "seed:superadmin": "node --env-file=.env.local scripts/seed-superadmin.mjs",
+    "seed:demo": "node --env-file=.env.local scripts/seed-demo-data.mjs",
+    "seed:demo:my-test": "node --env-file=.env.local scripts/seed-demo-data.mjs --slug=my-test"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.2",
