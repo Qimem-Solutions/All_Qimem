@@ -1,0 +1,181 @@
+import Link from "next/link";
+import type { LucideIcon } from "lucide-react";
+import {
+  Bell,
+  Search,
+  Settings,
+  ChevronRight,
+  LayoutGrid,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { HeaderProfileMenu } from "@/components/layout/header-profile-menu";
+
+export type NavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+};
+
+type AppShellProps = {
+  children: React.ReactNode;
+  brand: { title: string; subtitle?: string };
+  navItems: NavItem[];
+  activePath: string;
+  headerCenter?: React.ReactNode;
+  headerRight?: React.ReactNode;
+  propertyTag?: string;
+  userBlock?: { name: string; role: string; avatarUrl?: string };
+  footerNav?: React.ReactNode;
+  primaryAction?: { href: string; label: string };
+  /** Default search bar in header when `headerCenter` is not provided */
+  searchPlaceholder?: string;
+  showAppsShortcut?: boolean;
+  /** Read-only mode: banner and no primary sidebar action (HRMS view-only users). */
+  readOnly?: boolean;
+};
+
+export function AppShell({
+  children,
+  brand,
+  navItems,
+  activePath,
+  headerCenter,
+  headerRight,
+  propertyTag,
+  userBlock,
+  footerNav,
+  primaryAction,
+  searchPlaceholder = "Search...",
+  showAppsShortcut,
+  readOnly,
+}: AppShellProps) {
+  return (
+    <div className="flex min-h-screen bg-background text-foreground">
+      <aside className="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-[#0c0c0d]">
+        <div className="border-b border-border px-5 py-6">
+          <p className="text-xl font-semibold tracking-tight text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
+            {brand.title}
+          </p>
+          {brand.subtitle ? (
+            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-500">
+              {brand.subtitle}
+            </p>
+          ) : null}
+        </div>
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
+          {navItems.map((item) => {
+            const active =
+              activePath === item.href ||
+              (item.href !== "/" && activePath.startsWith(item.href));
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-gold text-gold-foreground"
+                    : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+        {primaryAction && !readOnly ? (
+          <div className="px-3 pb-4">
+            <Link
+              href={primaryAction.href}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-gold py-3 text-sm font-semibold text-gold-foreground transition-colors hover:bg-gold-dim"
+            >
+              <ChevronRight className="h-4 w-4 rotate-180" />
+              {primaryAction.label}
+            </Link>
+          </div>
+        ) : null}
+        {footerNav}
+        {userBlock ? (
+          <div className="mt-auto border-t border-border p-4">
+            <div className="flex items-center gap-3 rounded-lg bg-surface-elevated/50 p-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-xs font-semibold text-white">
+                {userBlock.name
+                  .split(" ")
+                  .map((n) => n[0])
+                  .join("")
+                  .slice(0, 2)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{userBlock.name}</p>
+                <p className="truncate text-xs text-zinc-500">{userBlock.role}</p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </aside>
+
+      <div className="flex min-h-screen flex-1 flex-col pl-64">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-background/90 px-6 backdrop-blur-md">
+          {propertyTag ? (
+            <span className="text-sm font-semibold text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
+              {propertyTag}
+            </span>
+          ) : (
+            <span className="w-24" />
+          )}
+          <div className="mx-auto flex max-w-xl flex-1 justify-center">
+            {headerCenter ?? (
+              <div className="relative w-full max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="search"
+                  placeholder={searchPlaceholder}
+                  className="h-10 w-full rounded-full border border-border bg-surface py-2 pl-10 pr-4 text-sm text-foreground placeholder:text-zinc-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/50"
+                />
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {headerRight}
+            {showAppsShortcut ? (
+              <button
+                type="button"
+                className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                aria-label="Apps"
+              >
+                <LayoutGrid className="h-5 w-5" />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="relative rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+              aria-label="Notifications"
+            >
+              <Bell className="h-5 w-5" />
+              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />
+            </button>
+            <button
+              type="button"
+              className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+              aria-label="Settings"
+            >
+              <Settings className="h-5 w-5" />
+            </button>
+            <HeaderProfileMenu />
+          </div>
+        </header>
+        <main className="flex-1 p-6 lg:p-8">
+          {readOnly ? (
+            <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-950/30 px-4 py-2 text-sm text-amber-100">
+              <strong>View-only access.</strong> You can browse this module but cannot create or edit
+              records.
+            </p>
+          ) : null}
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+}

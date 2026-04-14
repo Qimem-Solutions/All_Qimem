@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# All Qimem — Web (Next.js)
 
-## Getting Started
+Dark, gold-accent UI for **Superadmin**, **Hotel Admin**, **HRRM**, and **HRMS**, aligned with `docs/ALL-QIMEM-ARCHITECTURE.md`.
 
-First, run the development server:
+## Setup
 
 ```bash
+cd web
+cp .env.example .env.local
+# Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY from your Supabase project.
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) — the home page links into each area.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Routes
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Area | Base path | Notes |
+|------|-----------|--------|
+| Auth | `/login` | UI ready; wire `signInWithPassword` / OAuth in a Server Action or client handler. |
+| Superadmin | `/superadmin/*` | Dashboard, tenants, hotel admins, subscriptions, settings, reports. |
+| Hotel Admin | `/hotel/*` | Dashboard, users, reports, settings. |
+| HRMS | `/hrms/*` | Dashboard, employees, org structure, scheduling, attendance, HR reports. |
+| HRRM | `/hrrm/*` | Dashboard, inventory, rates, reservations, availability, front desk, concierge, housekeeping. |
 
-## Learn More
+## Supabase
 
-To learn more about Next.js, take a look at the following resources:
+- **Single migration (run once in SQL editor or `supabase db push`):** `../supabase/migrations/20260414120000_all_qimem_unified.sql` — schema, profile constraint upgrade, signup trigger, profiles RLS, and profile row for superadmin *if* an Auth user with that email already exists.
+- **Login user:** SQL cannot create `auth.users` or passwords. To create `superadmin@qimem.com` with a password, add `SUPABASE_SERVICE_ROLE_KEY` to `.env.local` (Dashboard → Settings → API → **service_role** secret), then from `web/` run `npm run seed:superadmin`. Alternatively create the user under **Authentication → Users** in the dashboard.
+- Clients: `lib/supabase/client.ts` (browser), `lib/supabase/server.ts` (Server Components / actions).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Stack
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Next.js App Router, React 19, Tailwind CSS v4, Lucide icons.
