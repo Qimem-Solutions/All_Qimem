@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -13,21 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { createTenantAction } from "../actions";
+import { ETHIOPIA_REGIONS, TENANT_PROPERTY_TYPES } from "@/lib/tenant-onboarding-options";
 
 const steps = [
   { id: 1, label: "Hotel info", key: "hotel" },
   { id: 2, label: "Branding", key: "branding" },
   { id: 3, label: "Confirmation", key: "confirm" },
 ] as const;
-
-const regions = ["Middle East — GCC", "Europe", "Americas", "Asia Pacific", "Africa"];
-const categories = [
-  "Luxury resort",
-  "Urban business",
-  "Boutique",
-  "Extended stay",
-  "Convention",
-];
 
 export default function TenantCreationOnboardingPage() {
   const router = useRouter();
@@ -37,10 +29,23 @@ export default function TenantCreationOnboardingPage() {
     subdomain: "",
     region: "",
     category: "",
+    description: "",
     primaryColor: "#e8c547",
   });
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!coverFile) {
+      setCoverPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(coverFile);
+    setCoverPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [coverFile]);
 
   function next() {
     if (step === 1) {
@@ -69,11 +74,13 @@ export default function TenantCreationOnboardingPage() {
       return;
     }
     setSubmitting(true);
-    const result = await createTenantAction({
-      name,
-      slug,
-      region: form.region || undefined,
-    });
+    const fd = new FormData();
+    fd.set("name", name);
+    fd.set("slug", slug);
+    if (form.region) fd.set("region", form.region);
+    fd.set("description", form.description.trim());
+    if (coverFile) fd.set("coverImage", coverFile);
+    const result = await createTenantAction(fd);
     setSubmitting(false);
     if (!result.ok) {
       setActionError(result.error);
@@ -191,7 +198,7 @@ export default function TenantCreationOnboardingPage() {
                     </div>
                     <div>
                       <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gold">
-                        Region
+                        Region in Ethiopia
                       </label>
                       <select
                         className="flex h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/60"
@@ -200,8 +207,8 @@ export default function TenantCreationOnboardingPage() {
                           setForm((f) => ({ ...f, region: e.target.value }))
                         }
                       >
-                        <option value="">Select region</option>
-                        {regions.map((r) => (
+                        <option value="">Select federal region or chartered city</option>
+                        {ETHIOPIA_REGIONS.map((r) => (
                           <option key={r} value={r}>
                             {r}
                           </option>
@@ -210,7 +217,7 @@ export default function TenantCreationOnboardingPage() {
                     </div>
                     <div>
                       <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gold">
-                        Category
+                        Property type
                       </label>
                       <select
                         className="flex h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/60"
@@ -219,13 +226,80 @@ export default function TenantCreationOnboardingPage() {
                           setForm((f) => ({ ...f, category: e.target.value }))
                         }
                       >
-                        <option value="">Select style</option>
-                        {categories.map((c) => (
+                        <option value="">Select a hotel / lodge style</option>
+                        {TENANT_PROPERTY_TYPES.map((c) => (
                           <option key={c} value={c}>
                             {c}
                           </option>
                         ))}
                       </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gold">
+                        Hotel description
+                      </label>
+                      <textarea
+                        className="min-h-[100px] w-full resize-y rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground placeholder:text-zinc-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/60"
+                        placeholder="Describe the property, location, and character — shown on internal listings and marketing."
+                        value={form.description}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, description: e.target.value }))
+                        }
+                        maxLength={4000}
+                        rows={4}
+                      />
+                      <p className="mt-1 text-xs text-zinc-600">
+                        Optional. Up to 4,000 characters.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gold">
+                        Hotel image
+                      </label>
+                      <p className="mb-2 text-xs text-zinc-500">
+                        Main photo for this property (hero or exterior). JPEG, PNG, WebP, or GIF, max
+                        3MB.
+                      </p>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                        <label className="inline-flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-zinc-600 bg-zinc-900/50 px-4 py-3 text-sm text-zinc-300 transition hover:border-gold/50 hover:text-gold">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            className="sr-only"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) setCoverFile(f);
+                            }}
+                          />
+                          {coverFile ? "Replace image" : "Choose file"}
+                        </label>
+                        {coverFile ? (
+                          <div className="flex flex-1 items-center gap-2">
+                            <span className="min-w-0 truncate text-xs text-zinc-400">
+                              {coverFile.name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCoverFile(null);
+                              }}
+                              className="shrink-0 text-xs text-zinc-500 underline hover:text-gold"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                      {coverPreview ? (
+                        <div className="mt-3 overflow-hidden rounded-lg border border-border">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={coverPreview}
+                            alt="Cover preview"
+                            className="max-h-40 w-full object-cover"
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </>
@@ -264,10 +338,11 @@ export default function TenantCreationOnboardingPage() {
                     </div>
                     <div>
                       <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gold">
-                        Logo asset
+                        Logo (optional, future)
                       </label>
-                      <div className="rounded-lg border border-dashed border-zinc-600 bg-zinc-900/50 px-4 py-8 text-center text-sm text-zinc-500">
-                        Drag & drop or browse — wire to Supabase Storage in production.
+                      <div className="rounded-lg border border-dashed border-zinc-600 bg-zinc-900/50 px-4 py-6 text-center text-sm text-zinc-500">
+                        The main hotel cover image is set in step 1. Logo uploads can be added here in a
+                        later release.
                       </div>
                     </div>
                   </div>
@@ -300,7 +375,7 @@ export default function TenantCreationOnboardingPage() {
                       </dd>
                     </div>
                     <div className="flex justify-between border-b border-border/60 py-2">
-                      <dt className="text-zinc-500">Region / category</dt>
+                      <dt className="text-zinc-500">Region (Ethiopia) / property type</dt>
                       <dd className="text-right text-zinc-300">
                         {form.region || "—"} · {form.category || "—"}
                       </dd>
@@ -313,6 +388,33 @@ export default function TenantCreationOnboardingPage() {
                           style={{ backgroundColor: form.primaryColor }}
                         />
                         {form.primaryColor}
+                      </dd>
+                    </div>
+                    <div className="border-b border-border/60 py-2">
+                      <dt className="text-zinc-500">Description</dt>
+                      <dd className="mt-1 max-w-md text-left text-sm text-zinc-300">
+                        {form.description.trim() ? (
+                          <span className="whitespace-pre-wrap">{form.description.trim()}</span>
+                        ) : (
+                          <span className="text-zinc-500">—</span>
+                        )}
+                      </dd>
+                    </div>
+                    <div className="py-2">
+                      <dt className="text-zinc-500">Hotel image</dt>
+                      <dd className="mt-2">
+                        {coverPreview ? (
+                          <div className="max-w-xs overflow-hidden rounded-lg border border-border">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={coverPreview}
+                              alt=""
+                              className="max-h-32 w-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <span className="text-sm text-zinc-500">None selected</span>
+                        )}
                       </dd>
                     </div>
                   </dl>
@@ -379,13 +481,22 @@ export default function TenantCreationOnboardingPage() {
             </div>
 
             <div className="overflow-hidden rounded-2xl border border-border">
-              <div className="aspect-[16/10] bg-gradient-to-br from-zinc-800 via-zinc-900 to-black">
-                <div className="flex h-full flex-col justify-end bg-gradient-to-t from-black/80 to-transparent p-6">
-                  <p className="text-lg font-semibold text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
-                    Crafting excellence.
+              <div className="relative aspect-[16/10] bg-gradient-to-br from-zinc-800 via-zinc-900 to-black">
+                {coverPreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={coverPreview}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                ) : null}
+                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/85 via-black/20 to-transparent p-6">
+                  <p className="line-clamp-2 text-lg font-semibold text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
+                    {form.hotelName.trim() || "Property name"}
                   </p>
-                  <p className="mt-2 text-sm text-zinc-400">
-                    Your new tenant will inherit the Sovereign Standard design tokens by default.
+                  <p className="mt-2 line-clamp-3 text-sm text-zinc-200">
+                    {form.description.trim() ||
+                      "Add a description in step 1 to preview the guest-facing story here."}
                   </p>
                 </div>
               </div>

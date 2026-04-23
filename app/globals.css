@@ -1,15 +1,41 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Light (default) */
 :root {
+  color-scheme: light;
+  --background: #fafaf9;
+  --foreground: #000000;
+  --muted: #71717a;
+  --surface: #f4f4f5;
+  --surface-elevated: #ffffff;
+  --border: #e4e4e7;
+  --sidebar: #ececed;
+  --sidebar-muted: #71717a;
+  --gold: #a16207;
+  --gold-dim: #854d0e;
+  --gold-foreground: #fafaf9;
+  --ring-subtle: rgba(24, 24, 27, 0.08);
+  --welcome-grid: rgba(24, 24, 27, 0.08);
+}
+
+/* Dark */
+.dark {
+  color-scheme: dark;
   --background: #0a0a0b;
   --foreground: #f4f4f5;
   --muted: #a1a1aa;
   --surface: #141416;
   --surface-elevated: #1c1c1f;
   --border: #27272a;
+  --sidebar: #0c0c0d;
+  --sidebar-muted: #a1a1aa;
   --gold: #e8c547;
   --gold-dim: #c9a227;
   --gold-foreground: #0a0a0b;
+  --ring-subtle: rgba(0, 0, 0, 0.4);
+  --welcome-grid: rgba(255, 255, 255, 0.03);
 }
 
 @theme inline {
@@ -19,6 +45,8 @@
   --color-surface: var(--surface);
   --color-surface-elevated: var(--surface-elevated);
   --color-border: var(--border);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-muted: var(--sidebar-muted);
   --color-gold: var(--gold);
   --color-gold-dim: var(--gold-dim);
   --color-gold-foreground: var(--gold-foreground);
@@ -32,8 +60,12 @@ body {
   font-family: var(--font-dm-sans), system-ui, sans-serif;
 }
 
-/* Scrollbar — subtle dark chrome */
+/* Scrollbar */
 * {
-  scrollbar-color: #3f3f46 transparent;
+  scrollbar-color: var(--border) transparent;
   scrollbar-width: thin;
+}
+
+.dark * {
+  scrollbar-color: #3f3f46 transparent;
 }

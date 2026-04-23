@@ -6,7 +6,7 @@ import { getUserContext } from "@/lib/queries/context";
 import {
   fetchHrmsReportsAnalytics,
   fetchTenantDepartmentsForSelect,
-  fetchTenantUsersWithRoles,
+  fetchTenantUsersForHotel,
 } from "@/lib/queries/tenant-data";
 import { AddDepartmentButton } from "@/components/hrms/add-department-button";
 import { CreateStaffButton } from "@/components/hrms/create-staff-button";
@@ -36,7 +36,7 @@ export default async function HotelUsersPage() {
 
   const [{ rows: users, error }, { rows: departmentsForSelect, error: deptSelectErr }, analytics] =
     await Promise.all([
-      fetchTenantUsersWithRoles(tenantId),
+      fetchTenantUsersForHotel(tenantId),
       fetchTenantDepartmentsForSelect(tenantId),
       fetchHrmsReportsAnalytics(tenantId),
     ]);
@@ -97,6 +97,8 @@ export default async function HotelUsersPage() {
         departmentError={deptCountsRes.error}
         bucketEntries={bucketEntries}
         maxBucket={maxBucket}
+        departmentsForSelect={deptSelectErr ? [] : departmentsForSelect}
+        currentUserId={ctx.userId}
       />
     </div>
   );

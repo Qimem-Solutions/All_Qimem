@@ -9,8 +9,10 @@ import {
   deleteEmployeeRecordAction,
   setEmployeeInactiveAction,
   updateEmployeeRecordAction,
+  uploadEmployeePhotoAction,
 } from "@/lib/actions/hrms-modules";
 import type { EmployeeRow } from "@/components/hrms/employees-directory-client";
+import { employeePhotoSrc } from "@/lib/hrms/employee-photo-url";
 
 const STATUS_OPTIONS = [
   "active",
@@ -38,7 +40,9 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [photoLoading, setPhotoLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   if (row.kind !== "employee") {
     return <span className="text-xs text-zinc-600">—</span>;
@@ -83,6 +87,18 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
     setError(null);
     setLoading(true);
     const fd = new FormData(e.currentTarget);
+    const salaryRaw = String(fd.get("monthlySalary") ?? "").trim();
+    let monthlySalaryCents: number | null = null;
+    if (salaryRaw.length > 0) {
+      const n = Number.parseFloat(salaryRaw);
+      if (!Number.isFinite(n) || n < 0) {
+        setLoading(false);
+        setError("Enter a valid monthly salary (0 or greater), or leave it blank.");
+        return;
+      }
+      monthlySalaryCents = Math.round(n * 100);
+    }
+
     const res = await updateEmployeeRecordAction({
       tenantId,
       employeeId: row.id,
@@ -93,6 +109,7 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
       hireDate: String(fd.get("hireDate") ?? "") || null,
       departmentId: String(fd.get("departmentId") ?? "") || null,
       status: String(fd.get("status") ?? "active"),
+      monthlySalaryCents,
     });
     setLoading(false);
     if (!res.ok) {
@@ -104,6 +121,23 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
   }
 
   const hireDateValue = row.hire_date ? row.hire_date.slice(0, 10) : "";
+  const salaryDefault =
+    row.monthly_salary_cents != null ? (row.monthly_salary_cents / 100).toFixed(2) : "";
+  const previewSrc = employeePhotoSrc(row.photo_url);
+
+  async function onPhotoSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setPhotoError(null);
+    setPhotoLoading(true);
+    const fd = new FormData(e.currentTarget);
+    const res = await uploadEmployeePhotoAction(null, fd);
+    setPhotoLoading(false);
+    if (!res.ok) {
+      setPhotoError(res.error);
+      return;
+    }
+    router.refresh();
+  }
 
   return (
     <div className="flex flex-col items-end gap-1">
@@ -161,7 +195,7 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
             }}
           />
           <div
-            className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-[#141416] p-6 shadow-xl"
+            className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-surface-elevated p-6 shadow-xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="edit-emp-title"
@@ -170,6 +204,49 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
               Edit employee
             </h2>
             <p className="mt-1 text-sm text-zinc-500">{row.full_name}</p>
+
+            <div className="mt-4 flex flex-col gap-3 rounded-xl border border-border/80 bg-black/20 p-4 sm:flex-row sm:items-center">
+              <div className="flex shrink-0 items-center gap-3">
+                {previewSrc ? (
+                  <img
+                    src={previewSrc}
+                    alt=""
+                    className="h-16 w-16 rounded-xl object-cover ring-2 ring-amber-500/20"
+                  />
+                ) : (
+                  <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-zinc-800 text-sm font-semibold text-zinc-400">
+                    —
+                  </div>
+                )}
+                <div className="text-xs text-zinc-500">
+                  <p className="font-medium text-zinc-400">Profile photo</p>
+                  <p>JPEG, PNG, or WebP · max 5 MB</p>
+                </div>
+              </div>
+              <form className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-end" onSubmit={onPhotoSubmit}>
+                <input type="hidden" name="tenantId" value={tenantId} />
+                <input type="hidden" name="employeeId" value={row.id} />
+                <div className="min-w-0 flex-1">
+                  <label className="sr-only" htmlFor={`photo-${row.id}`}>
+                    New photo
+                  </label>
+                  <input
+                    id={`photo-${row.id}`}
+                    name="photo"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="w-full cursor-pointer text-xs file:mr-2 file:rounded-md file:border-0 file:bg-zinc-800 file:px-2 file:py-1 file:text-zinc-200"
+                  />
+                </div>
+                <Button type="submit" size="sm" variant="secondary" disabled={photoLoading}>
+                  {photoLoading ? "Uploading…" : "Upload"}
+                </Button>
+              </form>
+            </div>
+            {photoError ? (
+              <p className="mt-2 text-xs text-red-400">{photoError}</p>
+            ) : null}
+
             <form className="mt-6 space-y-4" onSubmit={onSaveEdit}>
               <div>
                 <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor={`fn-${row.id}`}>
@@ -197,11 +274,27 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
                   <Input id={`ec-${row.id}`} name="employeeCode" defaultValue={row.employee_code ?? ""} />
                 </div>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor={`hd-${row.id}`}>
-                  Hire date
-                </label>
-                <Input id={`hd-${row.id}`} name="hireDate" type="date" defaultValue={hireDateValue} />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor={`hd-${row.id}`}>
+                    Hire date
+                  </label>
+                  <Input id={`hd-${row.id}`} name="hireDate" type="date" defaultValue={hireDateValue} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor={`ms-${row.id}`}>
+                    Monthly salary (USD)
+                  </label>
+                  <Input
+                    id={`ms-${row.id}`}
+                    name="monthlySalary"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="e.g. 4500"
+                    defaultValue={salaryDefault}
+                  />
+                </div>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor={`dp-${row.id}`}>

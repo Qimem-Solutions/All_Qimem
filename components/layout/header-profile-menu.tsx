@@ -62,15 +62,15 @@ export function HeaderProfileMenu({ size = "default" }: { size?: Size }) {
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-full z-50 mt-2 min-w-[11rem] rounded-lg border border-border bg-[#141416] py-1 shadow-lg ring-1 ring-black/40"
+          className="absolute right-0 top-full z-50 mt-2 min-w-[11rem] rounded-lg border border-border bg-surface-elevated py-1 shadow-lg ring-1 ring-[var(--ring-subtle)]"
         >
           <button
             type="button"
             role="menuitem"
             onClick={onLogout}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-200 hover:bg-white/5"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-foreground/5 dark:hover:bg-white/5"
           >
-            <LogOut className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
+            <LogOut className="h-4 w-4 shrink-0 text-muted" aria-hidden />
             Log out
           </button>
         </div>

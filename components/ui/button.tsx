@@ -16,8 +16,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         variant === "primary" &&
           "bg-gold text-gold-foreground hover:bg-gold-dim",
         variant === "secondary" &&
-          "bg-surface-elevated text-foreground border border-border hover:bg-zinc-800",
-        variant === "ghost" && "bg-transparent text-muted hover:text-foreground hover:bg-white/5",
+          "bg-surface-elevated text-foreground border border-border hover:bg-zinc-200 dark:hover:bg-zinc-800",
+        variant === "ghost" &&
+          "bg-transparent text-muted hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/5",
         variant === "outline" &&
           "border border-gold bg-transparent text-gold hover:bg-gold/10",
         size === "sm" && "h-8 px-3 text-xs",

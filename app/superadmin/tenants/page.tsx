@@ -18,6 +18,7 @@ import {
   type TenantRow,
 } from "@/lib/queries/superadmin";
 import { formatRelative, tenantDisplayId } from "@/lib/format";
+import { TenantRowActions } from "@/components/superadmin/tenant-row-actions";
 
 function planIcon(plan: string | null) {
   if (!plan) {
@@ -48,6 +49,8 @@ function statusBadge(t: TenantRow) {
   if (s === "trialing" || s === "trial") return <Badge tone="gray">Trial</Badge>;
   if (s === "past_due" || s === "unpaid") return <Badge tone="red">Billing issue</Badge>;
   if (s === "canceled" || s === "cancelled") return <Badge tone="red">Canceled</Badge>;
+  if (s === "inactive" || s === "suspended" || s === "paused")
+    return <Badge tone="gray">Inactive</Badge>;
   return <Badge tone="gray">{t.subStatus}</Badge>;
 }
 
@@ -197,7 +200,7 @@ export default async function TenantsManagementPage() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
+            <table className="w-full min-w-[960px] text-left text-sm">
               <thead>
                 <tr className="border-b border-border text-[10px] uppercase tracking-wider text-zinc-500">
                   <th className="px-6 py-4 font-medium">Hotel name</th>
@@ -206,13 +209,14 @@ export default async function TenantsManagementPage() {
                   <th className="py-4 font-medium">Status</th>
                   <th className="py-4 font-medium">Plan</th>
                   <th className="py-4 font-medium">Last activity</th>
-                  <th className="py-4 pr-6 text-right font-medium">ID</th>
+                  <th className="py-4 text-right font-medium">ID</th>
+                  <th className="w-[72px] py-4 pr-6 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {tenants.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center text-sm text-zinc-500">
+                    <td colSpan={8} className="px-6 py-10 text-center text-sm text-zinc-500">
                       No tenants yet. Create your first property to see it here.
                     </td>
                   </tr>
@@ -224,7 +228,16 @@ export default async function TenantsManagementPage() {
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-gradient-to-br from-zinc-700 to-zinc-900 ring-1 ring-white/10" />
+                          {row.cover_image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={row.cover_image_url}
+                              alt=""
+                              className="h-11 w-11 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
+                            />
+                          ) : (
+                            <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-gradient-to-br from-zinc-700 to-zinc-900 ring-1 ring-white/10" />
+                          )}
                           <div>
                             <p className="font-medium text-white">{row.name}</p>
                             <p className="text-xs text-zinc-500">{tenantDisplayId(row.id)}</p>
@@ -238,8 +251,11 @@ export default async function TenantsManagementPage() {
                       <td className="py-4 text-zinc-500">
                         {formatRelative(row.subCreatedAt ?? row.created_at)}
                       </td>
-                      <td className="py-4 pr-6 text-right font-mono text-xs text-zinc-500">
+                      <td className="py-4 text-right font-mono text-xs text-zinc-500">
                         {row.id.slice(0, 8)}…
+                      </td>
+                      <td className="py-4 pr-6 text-right">
+                        <TenantRowActions row={row} />
                       </td>
                     </tr>
                   ))

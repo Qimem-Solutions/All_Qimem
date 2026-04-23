@@ -1,7 +1,24 @@
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
+import { localDateIso } from "@/lib/format";
 import { getUserContext } from "@/lib/queries/context";
 import type { ServiceAccessLevel } from "@/lib/auth/service-access";
+
+/** Prefer service role for tenant-scoped HRRM reads so RLS never returns an empty ledger when data exists. */
+async function getSupabaseHrrmRead() {
+  try {
+    return createServiceRoleClient();
+  } catch {
+    return await createClient();
+  }
+}
+
+/** When `departments.is_active` migration is not applied yet, PostgREST returns this. */
+function missingDepartmentsIsActiveColumn(msg: string | undefined): boolean {
+  if (!msg) return false;
+  const m = msg.toLowerCase();
+  return m.includes("is_active") && m.includes("does not exist");
+}
 
 export async function fetchTenantUsers(tenantId: string) {
   const supabase = await createClient();
@@ -17,14 +34,35 @@ export async function fetchTenantUsers(tenantId: string) {
 
 export async function fetchTenantDepartmentsForSelect(tenantId: string) {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const withActive = await supabase
     .from("departments")
-    .select("id, name")
+    .select("id, name, is_active")
     .eq("tenant_id", tenantId)
+    .eq("is_active", true)
     .order("name");
 
-  if (error) return { rows: [] as { id: string; name: string }[], error: error.message };
-  return { rows: data ?? [], error: null as string | null };
+  if (withActive.error && missingDepartmentsIsActiveColumn(withActive.error.message)) {
+    const fallback = await supabase
+      .from("departments")
+      .select("id, name")
+      .eq("tenant_id", tenantId)
+      .order("name");
+    if (fallback.error) {
+      return { rows: [] as { id: string; name: string }[], error: fallback.error.message };
+    }
+    return {
+      rows: (fallback.data ?? []).map((d) => ({ id: d.id, name: d.name })),
+      error: null as string | null,
+    };
+  }
+
+  if (withActive.error) {
+    return { rows: [] as { id: string; name: string }[], error: withActive.error.message };
+  }
+  return {
+    rows: (withActive.data ?? []).map((d) => ({ id: d.id, name: d.name })),
+    error: null as string | null,
+  };
 }
 
 export async function fetchEmployees(tenantId: string) {
@@ -32,7 +70,7 @@ export async function fetchEmployees(tenantId: string) {
   const { data: employees, error: eErr } = await supabase
     .from("employees")
     .select(
-      "id, employee_code, full_name, email, job_title, status, hire_date, department_id",
+      "id, employee_code, full_name, email, job_title, status, hire_date, department_id, photo_url, monthly_salary_cents",
     )
     .eq("tenant_id", tenantId)
     .order("full_name", { ascending: true });
@@ -71,6 +109,9 @@ export type HrmsDirectoryRow = {
   hire_date: string | null;
   department_id: string | null;
   department_name: string | null;
+  /** Storage path for private bucket `employee-photos`, or legacy http URL */
+  photo_url: string | null;
+  monthly_salary_cents: number | null;
 };
 
 function accountJobTitleFromGlobalRole(globalRole: string | null): string {
@@ -120,6 +161,8 @@ export async function fetchHrmsDirectory(
         hire_date: r.hire_date,
         department_id: r.department_id,
         department_name: r.department_name,
+        photo_url: r.photo_url ?? null,
+        monthly_salary_cents: r.monthly_salary_cents ?? null,
       })),
       departments: depts.rows,
       error: emp.error ?? depts.error,
@@ -129,7 +172,7 @@ export async function fetchHrmsDirectory(
   const { data: employees, error: eErr } = await admin
     .from("employees")
     .select(
-      "id, user_id, employee_code, full_name, email, job_title, status, hire_date, department_id",
+      "id, user_id, employee_code, full_name, email, job_title, status, hire_date, department_id, photo_url, monthly_salary_cents",
     )
     .eq("tenant_id", tenantId)
     .order("full_name", { ascending: true });
@@ -161,6 +204,8 @@ export async function fetchHrmsDirectory(
     hire_date: e.hire_date,
     department_id: e.department_id,
     department_name: e.department_id ? deptMap.get(e.department_id) ?? null : null,
+    photo_url: e.photo_url ?? null,
+    monthly_salary_cents: e.monthly_salary_cents ?? null,
   }));
 
   const linkedUserIds = new Set(
@@ -193,6 +238,8 @@ export async function fetchHrmsDirectory(
       hire_date: null,
       department_id: null,
       department_name: null,
+      photo_url: null,
+      monthly_salary_cents: null,
     }));
 
   const merged = [...empRows, ...accountRows].sort((a, b) =>
@@ -248,8 +295,28 @@ export async function fetchRooms(tenantId: string) {
   return { rows, error: null };
 }
 
-export async function fetchReservationsWithGuests(tenantId: string) {
-  const supabase = await createClient();
+/** HRRM reservations ledger row (with guest + room labels). */
+export type ReservationLedgerRow = {
+  id: string;
+  guest_id: string;
+  room_id: string | null;
+  confirmation_code: string | null;
+  check_in: string;
+  check_out: string;
+  status: string;
+  balance_cents: number;
+  created_at: string;
+  guest_name: string;
+  guest_email: string | null;
+  guest_phone: string | null;
+  loyalty_tier: string | null;
+  room_number: string;
+};
+
+export async function fetchReservationsWithGuests(
+  tenantId: string,
+): Promise<{ rows: ReservationLedgerRow[]; error: string | null }> {
+  const supabase = await getSupabaseHrrmRead();
   const { data: reservations, error: resErr } = await supabase
     .from("reservations")
     .select(
@@ -268,26 +335,51 @@ export async function fetchReservationsWithGuests(tenantId: string) {
 
   const [guestsRes, roomsRes] = await Promise.all([
     guestIds.length
-      ? supabase.from("guests").select("id, full_name").in("id", guestIds)
-      : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
+      ? supabase
+          .from("guests")
+          .select("id, full_name, email, phone, loyalty_tier")
+          .in("id", guestIds)
+      : Promise.resolve({
+          data: [] as { id: string; full_name: string; email: string | null; phone: string | null; loyalty_tier: string | null }[],
+        }),
     roomIds.length
       ? supabase.from("rooms").select("id, room_number").in("id", roomIds)
       : Promise.resolve({ data: [] as { id: string; room_number: string }[] }),
   ]);
 
-  const guestMap = new Map((guestsRes.data ?? []).map((g) => [g.id, g.full_name]));
+  const guestMap = new Map(
+    (guestsRes.data ?? []).map((g) => [
+      g.id,
+      {
+        name: g.full_name,
+        email: g.email ?? null,
+        phone: g.phone ?? null,
+        loyalty: g.loyalty_tier ?? null,
+      },
+    ]),
+  );
   const roomMap = new Map((roomsRes.data ?? []).map((r) => [r.id, r.room_number]));
 
-  const rows = (reservations ?? []).map((r) => ({
-    id: r.id,
-    confirmation_code: r.confirmation_code,
-    check_in: r.check_in,
-    check_out: r.check_out,
-    status: r.status,
-    balance_cents: r.balance_cents,
-    guest_name: guestMap.get(r.guest_id) ?? "—",
-    room_number: r.room_id ? roomMap.get(r.room_id) ?? "—" : "—",
-  }));
+  const rows: ReservationLedgerRow[] = (reservations ?? []).map((r) => {
+    const g = guestMap.get(r.guest_id);
+    const bal = r.balance_cents;
+    return {
+      id: r.id,
+      guest_id: r.guest_id,
+      room_id: r.room_id,
+      confirmation_code: r.confirmation_code,
+      check_in: r.check_in,
+      check_out: r.check_out,
+      status: r.status,
+      balance_cents: typeof bal === "bigint" ? Number(bal) : bal ?? 0,
+      created_at: r.created_at ?? "",
+      guest_name: g?.name ?? "—",
+      guest_email: g?.email ?? null,
+      guest_phone: g?.phone ?? null,
+      loyalty_tier: g?.loyalty ?? null,
+      room_number: r.room_id ? roomMap.get(r.room_id) ?? "—" : "—",
+    };
+  });
 
   return { rows, error: null };
 }
@@ -377,7 +469,7 @@ export async function fetchAttendanceLogs(tenantId: string) {
 }
 
 export async function fetchHrrmDashboardCounts(tenantId: string) {
-  const supabase = await createClient();
+  const supabase = await getSupabaseHrrmRead();
   const [roomsRes, resRes, guestsRes] = await Promise.all([
     supabase.from("rooms").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
     supabase
@@ -405,6 +497,42 @@ export async function fetchTenantName(tenantId: string) {
     .maybeSingle();
   if (error) return { name: null as string | null, error: error.message };
   return { name: data?.name ?? null, error: null as string | null };
+}
+
+/** Name, slug, description, and cover for hotel portfolio / property overview. */
+export type TenantPortfolio = {
+  name: string;
+  slug: string;
+  description: string | null;
+  cover_image_url: string | null;
+};
+
+export async function fetchTenantPortfolio(tenantId: string): Promise<{
+  portfolio: TenantPortfolio | null;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tenants")
+    .select("name, slug, description, cover_image_url")
+    .eq("id", tenantId)
+    .maybeSingle();
+
+  if (error) {
+    return { portfolio: null, error: error.message };
+  }
+  if (!data) {
+    return { portfolio: null, error: null };
+  }
+  return {
+    portfolio: {
+      name: data.name,
+      slug: data.slug,
+      description: (data as { description?: string | null }).description ?? null,
+      cover_image_url: (data as { cover_image_url?: string | null }).cover_image_url ?? null,
+    },
+    error: null,
+  };
 }
 
 export async function fetchTenantSubscription(tenantId: string) {
@@ -558,6 +686,85 @@ export async function fetchTenantUsersWithRoles(tenantId: string): Promise<{
   };
 }
 
+export type TenantUserWithEmployee = TenantUserRow & {
+  employee: {
+    id: string;
+    status: string;
+    department_id: string | null;
+    job_title: string | null;
+    employee_code: string | null;
+    hire_date: string | null;
+    monthly_salary_cents: number | null;
+  } | null;
+};
+
+/**
+ * Hotel Admin: tenant profiles + `user_roles`, plus an optional `employees` row per login user.
+ */
+export async function fetchTenantUsersForHotel(
+  tenantId: string,
+): Promise<{ rows: TenantUserWithEmployee[]; error: string | null }> {
+  const base = await fetchTenantUsersWithRoles(tenantId);
+  if (base.error) {
+    return { rows: [], error: base.error };
+  }
+  let admin: ReturnType<typeof createServiceRoleClient>;
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    return {
+      rows: base.rows.map((r) => ({ ...r, employee: null })),
+      error: null,
+    };
+  }
+  const { data: emps, error: eErr } = await admin
+    .from("employees")
+    .select(
+      "id, user_id, status, department_id, job_title, employee_code, hire_date, monthly_salary_cents",
+    )
+    .eq("tenant_id", tenantId);
+  if (eErr) {
+    return { rows: [], error: eErr.message };
+  }
+  const byUser = new Map(
+    (emps ?? [])
+      .filter((e) => e.user_id)
+      .map((e) => {
+        const row = e as {
+          id: string;
+          user_id: string;
+          status: string;
+          department_id: string | null;
+          job_title: string | null;
+          employee_code: string | null;
+          hire_date: string | null;
+          monthly_salary_cents: number | null;
+        };
+        return [row.user_id, row] as const;
+      }),
+  );
+  return {
+    rows: base.rows.map((r) => {
+      const e = byUser.get(r.id);
+      return {
+        ...r,
+        employee: e
+          ? {
+              id: e.id,
+              status: e.status ?? "active",
+              department_id: e.department_id,
+              job_title: e.job_title,
+              employee_code: e.employee_code,
+              hire_date: e.hire_date,
+              monthly_salary_cents: e.monthly_salary_cents,
+            }
+          : null,
+      };
+    }),
+    error: null,
+  };
+}
+
 export async function fetchHrmsDashboardStats(tenantId: string) {
   const ctx = await getUserContext();
   if (!ctx?.userId || ctx.tenantId !== tenantId) {
@@ -605,6 +812,8 @@ export type DepartmentCountRow = {
   id: string;
   name: string;
   employee_count: number;
+  /** False when department is soft-disabled (hidden from new assignments). Omitted in older API responses. */
+  is_active?: boolean;
 };
 
 export async function fetchDepartmentsWithCounts(tenantId: string): Promise<{
@@ -613,13 +822,29 @@ export async function fetchDepartmentsWithCounts(tenantId: string): Promise<{
   error: string | null;
 }> {
   const supabase = await createClient();
-  const { data: depts, error } = await supabase
+  const withActive = await supabase
     .from("departments")
-    .select("id, name")
+    .select("id, name, is_active")
     .eq("tenant_id", tenantId)
     .order("name");
 
-  if (error) return { rows: [], totalEmployees: 0, error: error.message };
+  let depts: { id: string; name: string; is_active?: boolean }[] | null;
+
+  if (withActive.error && missingDepartmentsIsActiveColumn(withActive.error.message)) {
+    const fallback = await supabase
+      .from("departments")
+      .select("id, name")
+      .eq("tenant_id", tenantId)
+      .order("name");
+    if (fallback.error) {
+      return { rows: [], totalEmployees: 0, error: fallback.error.message };
+    }
+    depts = fallback.data;
+  } else if (withActive.error) {
+    return { rows: [], totalEmployees: 0, error: withActive.error.message };
+  } else {
+    depts = withActive.data;
+  }
 
   const { count: totalEmployees } = await supabase
     .from("employees")
@@ -633,7 +858,12 @@ export async function fetchDepartmentsWithCounts(tenantId: string): Promise<{
         .select("id", { count: "exact", head: true })
         .eq("tenant_id", tenantId)
         .eq("department_id", d.id);
-      return { id: d.id, name: d.name, employee_count: count ?? 0 };
+      return {
+        id: d.id,
+        name: d.name,
+        employee_count: count ?? 0,
+        is_active: (d as { is_active?: boolean }).is_active !== false,
+      };
     }),
   );
 
@@ -666,14 +896,28 @@ export async function fetchHrmsReportsAnalytics(tenantId: string): Promise<{
     };
   }
 
-  const { data: depts, error: dErr } = await admin
+  const withActiveAdmin = await admin
     .from("departments")
-    .select("id, name")
+    .select("id, name, is_active")
     .eq("tenant_id", tenantId)
     .order("name");
 
-  if (dErr) {
-    return { totalEmployees: 0, departments: [], error: dErr.message };
+  let depts: { id: string; name: string; is_active?: boolean }[] | null;
+
+  if (withActiveAdmin.error && missingDepartmentsIsActiveColumn(withActiveAdmin.error.message)) {
+    const fallback = await admin
+      .from("departments")
+      .select("id, name")
+      .eq("tenant_id", tenantId)
+      .order("name");
+    if (fallback.error) {
+      return { totalEmployees: 0, departments: [], error: fallback.error.message };
+    }
+    depts = fallback.data;
+  } else if (withActiveAdmin.error) {
+    return { totalEmployees: 0, departments: [], error: withActiveAdmin.error.message };
+  } else {
+    depts = withActiveAdmin.data;
   }
 
   const { count: totalEmployees } = await admin
@@ -688,7 +932,12 @@ export async function fetchHrmsReportsAnalytics(tenantId: string): Promise<{
         .select("id", { count: "exact", head: true })
         .eq("tenant_id", tenantId)
         .eq("department_id", d.id);
-      return { id: d.id, name: d.name, employee_count: count ?? 0 };
+      return {
+        id: d.id,
+        name: d.name,
+        employee_count: count ?? 0,
+        is_active: (d as { is_active?: boolean }).is_active !== false,
+      };
     }),
   );
 
@@ -734,8 +983,8 @@ export async function fetchShiftsUpcoming(tenantId: string, limit = 80) {
 }
 
 export async function fetchReservationStats(tenantId: string) {
-  const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
+  const supabase = await getSupabaseHrrmRead();
+  const today = localDateIso();
   const [checkInsToday, departuresToday, nonCanceled] = await Promise.all([
     supabase
       .from("reservations")
@@ -803,7 +1052,7 @@ export async function fetchRoomHousekeepingAggregate(tenantId: string) {
 }
 
 export async function fetchRecentReservationsForConcierge(tenantId: string, limit = 8) {
-  const supabase = await createClient();
+  const supabase = await getSupabaseHrrmRead();
   const { data: reservations, error: rErr } = await supabase
     .from("reservations")
     .select("id, guest_id, confirmation_code, check_in, check_out, status")

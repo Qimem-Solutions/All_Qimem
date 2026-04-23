@@ -1,0 +1,382 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createServiceRoleClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
+
+export type AvailabilityDay = {
+  date: string;
+  label: string;
+};
+
+export type AvailabilityCell = {
+  date: string;
+  priceCents: number;
+  available: number;
+  physical: number;
+};
+
+export type AvailabilityRow = {
+  roomTypeId: string;
+  roomTypeName: string;
+  capacity: number | null;
+  cells: AvailabilityCell[];
+};
+
+export type AvailabilityMatrix = {
+  days: AvailabilityDay[];
+  rows: AvailabilityRow[];
+  totalPhysicalRooms: number;
+  /** Per-day: booked rooms / total physical (0–1) for chart */
+  occupancyByDate: number[];
+  /** Weighted mean nightly rate in cents across types (for ADR card) */
+  adrCents: number | null;
+  error: string | null;
+};
+
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function dayLabel(iso: string): string {
+  const d = new Date(`${iso}T12:00:00.000Z`);
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
+}
+
+/** Room is not counted in sellable inventory. */
+function isRoomSellable(operationalStatus: string | null): boolean {
+  const o = (operationalStatus ?? "available").toLowerCase();
+  return o !== "inactive" && o !== "out_of_order" && o !== "maintenance";
+}
+
+export function isCanceledReservation(status: string | null): boolean {
+  const s = (status ?? "").toLowerCase();
+  return s === "canceled" || s === "cancelled";
+}
+
+/** Night D is occupied if check_in <= D < check_out (date strings). */
+function reservationCoversDate(checkIn: string, checkOut: string, d: string): boolean {
+  return checkIn <= d && checkOut > d;
+}
+
+function rangesOverlap(aIn: string, aOut: string, bIn: string, bOut: string): boolean {
+  return aIn < bOut && aOut > bIn;
+}
+
+export function enumerateHorizon(startIso: string, dayCount: number): AvailabilityDay[] {
+  const out: AvailabilityDay[] = [];
+  for (let i = 0; i < dayCount; i++) {
+    const date = addDaysIso(startIso, i);
+    out.push({ date, label: dayLabel(date) });
+  }
+  return out;
+}
+
+type RatePlanRow = {
+  id: string;
+  base_amount_cents: number;
+  is_active: boolean | null;
+  room_type_id: string | null;
+};
+
+function priceForRoomType(plans: RatePlanRow[], roomTypeId: string): number {
+  const active = plans.filter((p) => p.is_active !== false);
+  const typed = active.find((p) => p.room_type_id === roomTypeId);
+  if (typed) return Number(typed.base_amount_cents) || 0;
+  const globalPlan = active.find((p) => !p.room_type_id);
+  if (globalPlan) return Number(globalPlan.base_amount_cents) || 0;
+  const any = active[0];
+  return any ? Number(any.base_amount_cents) || 0 : 0;
+}
+
+/**
+ * Loads nightly availability by room type and day, using rooms + reservations + rate_plans.
+ */
+export async function fetchAvailabilityMatrix(
+  tenantId: string,
+  startIso: string,
+  dayCount: number,
+): Promise<AvailabilityMatrix> {
+  const supabase = await createClient();
+  const days = enumerateHorizon(startIso, dayCount);
+
+  const [typesRes, roomsRes, plansRes, resRes] = await Promise.all([
+    supabase.from("room_types").select("id, name, capacity").eq("tenant_id", tenantId).order("name"),
+    supabase
+      .from("rooms")
+      .select("id, room_type_id, operational_status")
+      .eq("tenant_id", tenantId),
+    supabase
+      .from("rate_plans")
+      .select("id, base_amount_cents, is_active, room_type_id")
+      .eq("tenant_id", tenantId),
+    supabase
+      .from("reservations")
+      .select("id, room_id, check_in, check_out, status")
+      .eq("tenant_id", tenantId)
+      .not("room_id", "is", null),
+  ]);
+
+  const err =
+    typesRes.error?.message ||
+    roomsRes.error?.message ||
+    plansRes.error?.message ||
+    resRes.error?.message ||
+    null;
+  if (err) {
+    return {
+      days,
+      rows: [],
+      totalPhysicalRooms: 0,
+      occupancyByDate: days.map(() => 0),
+      adrCents: null,
+      error: err,
+    };
+  }
+
+  const roomTypes = typesRes.data ?? [];
+  const rooms = roomsRes.data ?? [];
+  const plans = (plansRes.data ?? []) as RatePlanRow[];
+  const reservations = (resRes.data ?? []).filter((r) => !isCanceledReservation(r.status));
+
+  const roomsByType = new Map<string, { id: string; operational: string | null }[]>();
+  for (const r of rooms) {
+    const tid = r.room_type_id;
+    if (!tid) continue;
+    const list = roomsByType.get(tid) ?? [];
+    list.push({ id: r.id, operational: r.operational_status });
+    roomsByType.set(tid, list);
+  }
+
+  let totalPhysical = 0;
+  for (const [, list] of roomsByType) {
+    totalPhysical += list.filter((x) => isRoomSellable(x.operational)).length;
+  }
+
+  /** room_id -> room_type_id */
+  const roomTypeById = new Map<string, string>();
+  for (const r of rooms) {
+    if (r.room_type_id) roomTypeById.set(r.id, r.room_type_id);
+  }
+
+  const rows: AvailabilityRow[] = roomTypes.map((t) => {
+    const list = roomsByType.get(t.id) ?? [];
+    const sellableIds = new Set(list.filter((x) => isRoomSellable(x.operational)).map((x) => x.id));
+    const physical = sellableIds.size;
+    const priceCents = priceForRoomType(plans, t.id);
+
+    const cells: AvailabilityCell[] = days.map(({ date: d }) => {
+      let booked = 0;
+      for (const res of reservations) {
+        if (!res.room_id || !sellableIds.has(res.room_id)) continue;
+        if (reservationCoversDate(res.check_in, res.check_out, d)) booked += 1;
+      }
+      const available = Math.max(0, physical - booked);
+      return {
+        date: d,
+        priceCents,
+        available,
+        physical,
+      };
+    });
+
+    return {
+      roomTypeId: t.id,
+      roomTypeName: t.name,
+      capacity: t.capacity,
+      cells,
+    };
+  });
+
+  const occupancyByDate: number[] = days.map(({ date: d }) => {
+    if (totalPhysical <= 0) return 0;
+    let bookedAll = 0;
+    for (const res of reservations) {
+      if (!res.room_id) continue;
+      const rid = res.room_id as string;
+      const op = rooms.find((x) => x.id === rid)?.operational_status ?? null;
+      if (!isRoomSellable(op)) continue;
+      if (reservationCoversDate(res.check_in, res.check_out, d)) bookedAll += 1;
+    }
+    return Math.min(1, bookedAll / totalPhysical);
+  });
+
+  let adrSum = 0;
+  let adrW = 0;
+  for (const row of rows) {
+    const p = row.cells[0]?.priceCents ?? 0;
+    const phys = row.cells[0]?.physical ?? 0;
+    if (phys > 0 && p > 0) {
+      adrSum += p * phys;
+      adrW += phys;
+    }
+  }
+  const adrCents = adrW > 0 ? Math.round(adrSum / adrW) : null;
+
+  return {
+    days,
+    rows,
+    totalPhysicalRooms: totalPhysical,
+    occupancyByDate,
+    adrCents,
+    error: null,
+  };
+}
+
+export type GuestSearchRow = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+};
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function searchGuestsForTenant(
+  tenantId: string,
+  q: string,
+  limit = 12,
+): Promise<{ rows: GuestSearchRow[]; error: string | null }> {
+  const term = q.trim();
+  if (term.length < 2) return { rows: [], error: null };
+
+  let supabase: Awaited<ReturnType<typeof createClient>> | ReturnType<typeof createServiceRoleClient>;
+  try {
+    supabase = createServiceRoleClient();
+  } catch {
+    supabase = await createClient();
+  }
+
+  const like = `%${term}%`;
+
+  const [byName, byPhone, byId] = await Promise.all([
+    supabase
+      .from("guests")
+      .select("id, full_name, phone")
+      .eq("tenant_id", tenantId)
+      .ilike("full_name", like)
+      .limit(limit),
+    supabase
+      .from("guests")
+      .select("id, full_name, phone")
+      .eq("tenant_id", tenantId)
+      .ilike("phone", like)
+      .limit(limit),
+    UUID_RE.test(term)
+      ? supabase
+          .from("guests")
+          .select("id, full_name, phone")
+          .eq("tenant_id", tenantId)
+          .eq("id", term)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null as null }),
+  ]);
+
+  const err = byName.error?.message || byPhone.error?.message || byId.error?.message;
+  if (err) return { rows: [], error: err };
+
+  const map = new Map<string, GuestSearchRow>();
+  for (const r of byName.data ?? []) map.set(r.id, r);
+  for (const r of byPhone.data ?? []) map.set(r.id, r);
+  if (byId.data) map.set(byId.data.id, byId.data as GuestSearchRow);
+
+  return { rows: [...map.values()].slice(0, limit), error: null };
+}
+
+export { rangesOverlap, reservationCoversDate, isRoomSellable };
+
+export async function findAvailableRoomForStay(
+  tenantId: string,
+  roomTypeId: string,
+  checkIn: string,
+  checkOut: string,
+): Promise<{ roomId: string | null; roomNumber: string | null; error: string | null }> {
+  const supabase = await createClient();
+  const { data: typeRooms, error: trErr } = await supabase
+    .from("rooms")
+    .select("id, room_number, operational_status")
+    .eq("tenant_id", tenantId)
+    .eq("room_type_id", roomTypeId)
+    .order("room_number");
+
+  if (trErr) return { roomId: null, roomNumber: null, error: trErr.message };
+
+  const sellable = (typeRooms ?? []).filter((r) => isRoomSellable(r.operational_status));
+  if (sellable.length === 0) {
+    return { roomId: null, roomNumber: null, error: "No sellable rooms for this type." };
+  }
+
+  const { data: resList, error: rErr } = await supabase
+    .from("reservations")
+    .select("room_id, check_in, check_out, status")
+    .eq("tenant_id", tenantId)
+    .not("room_id", "is", null);
+
+  if (rErr) return { roomId: null, roomNumber: null, error: rErr.message };
+
+  const blocking = (resList ?? []).filter((r) => !isCanceledReservation(r.status));
+
+  for (const room of sellable) {
+    let free = true;
+    for (const r of blocking) {
+      if (r.room_id !== room.id) continue;
+      if (rangesOverlap(checkIn, checkOut, r.check_in, r.check_out)) {
+        free = false;
+        break;
+      }
+    }
+    if (free) {
+      return { roomId: room.id, roomNumber: room.room_number, error: null };
+    }
+  }
+
+  return { roomId: null, roomNumber: null, error: "No room is free for those dates." };
+}
+
+type RoomPick = { id: string; operational_status: string | null; tenant_id: string };
+
+/**
+ * True when this room is sellable and has no non-canceled stay overlapping [checkIn, checkOut).
+ * Use `excludeReservationId` when updating an existing reservation’s dates.
+ */
+export async function isRoomAvailableForStay(
+  supabase: SupabaseClient,
+  tenantId: string,
+  roomId: string,
+  checkIn: string,
+  checkOut: string,
+  opts?: { excludeReservationId?: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: room, error: rErr } = await supabase
+    .from("rooms")
+    .select("id, operational_status, tenant_id")
+    .eq("id", roomId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  if (rErr) return { ok: false, error: rErr.message };
+  const r = room as RoomPick | null;
+  if (!r) return { ok: false, error: "Room not found for this property." };
+  if (!isRoomSellable(r.operational_status)) {
+    return { ok: false, error: "This room is not available to sell (out of order or inactive)." };
+  }
+
+  const { data: resList, error: resErr } = await supabase
+    .from("reservations")
+    .select("id, room_id, check_in, check_out, status")
+    .eq("tenant_id", tenantId)
+    .eq("room_id", roomId);
+
+  if (resErr) return { ok: false, error: resErr.message };
+
+  const blocking = (resList ?? [])
+    .filter((x) => !isCanceledReservation(x.status))
+    .filter((x) => (opts?.excludeReservationId ? x.id !== opts.excludeReservationId : true));
+  for (const b of blocking) {
+    if (rangesOverlap(checkIn, checkOut, b.check_in, b.check_out)) {
+      return { ok: false, error: "This room is already booked for part of that stay." };
+    }
+  }
+
+  return { ok: true };
+}

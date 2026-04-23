@@ -1,3 +1,20 @@
+/** Calendar date YYYY-MM-DD in the environment’s local timezone (for stay pickers and “today”). */
+export function localDateIso(d = new Date()): string {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+export function addLocalDays(isoYmd: string, days: number): string {
+  const [y, m, day] = isoYmd.split("-").map(Number);
+  if (!y || !m || !day) return localDateIso();
+  const d = new Date(y, m - 1, day);
+  d.setDate(d.getDate() + days);
+  return localDateIso(d);
+}
+
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {

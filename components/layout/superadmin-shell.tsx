@@ -18,14 +18,14 @@ export function SuperadminShell({ children }: { children: React.ReactNode }) {
         <div className="space-y-0.5 px-3 pb-2">
           <Link
             href="/superadmin/settings"
-            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
+            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/5"
           >
             <Settings className="h-4 w-4 shrink-0" strokeWidth={1.75} />
             Settings
           </Link>
           <Link
             href="/superadmin/support"
-            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
+            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/5"
           >
             <Headphones className="h-4 w-4 shrink-0" strokeWidth={1.75} />
             Support

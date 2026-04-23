@@ -45,7 +45,7 @@ export function AddDepartmentButton() {
             onClick={() => setOpen(false)}
           />
           <div
-            className="relative z-10 w-full max-w-md rounded-xl border border-border bg-[#141416] p-6 shadow-xl"
+            className="relative z-10 w-full max-w-md rounded-xl border border-border bg-surface-elevated p-6 shadow-xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-dept-title"

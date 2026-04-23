@@ -10,7 +10,6 @@ export function HotelShell({ children }: { children: React.ReactNode }) {
       navItems={[...hotelNav]}
       propertyTag="GRAND QIMEM"
       userBlock={{ name: "Hotel Admin", role: "Executive" }}
-      primaryAction={{ href: "/hotel/users", label: "+ Invite user" }}
     >
       {children}
     </AppShellWrapper>

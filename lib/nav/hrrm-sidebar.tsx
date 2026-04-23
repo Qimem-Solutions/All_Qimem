@@ -7,6 +7,8 @@ import {
   ClipboardList,
   Sparkles,
   BrushCleaning,
+  Users,
+  UserRound,
 } from "lucide-react";
 
 export const hrrmSidebarNav = [
@@ -16,6 +18,8 @@ export const hrrmSidebarNav = [
   { href: "/hrrm/reservations", label: "Reservations", icon: CalendarRange },
   { href: "/hrrm/availability", label: "Availability", icon: Grid3X3 },
   { href: "/hrrm/front-desk", label: "Front Desk", icon: ClipboardList },
+  { href: "/hrrm/guests", label: "Guests", icon: UserRound },
   { href: "/hrrm/concierge", label: "Concierge", icon: Sparkles },
   { href: "/hrrm/housekeeping", label: "Housekeeping", icon: BrushCleaning },
+  { href: "/hrrm/staff", label: "Staffs", icon: Users },
 ] as const;

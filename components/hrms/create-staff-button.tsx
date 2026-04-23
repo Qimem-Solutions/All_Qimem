@@ -31,15 +31,9 @@ export function CreateStaffButton({ departments }: Props) {
     setError(null);
     setLoading(true);
     const fd = new FormData(form);
-    const res = await createStaffUserAction({
-      fullName: String(fd.get("fullName") ?? ""),
-      email: String(fd.get("email") ?? ""),
-      password: String(fd.get("password") ?? "") || undefined,
-      jobTitle: String(fd.get("jobTitle") ?? "") || undefined,
-      departmentId: String(fd.get("departmentId") ?? "") || null,
-      hrmsAccess: hrms,
-      hrrmAccess: hrrm,
-    });
+    fd.set("hrmsAccess", hrms);
+    fd.set("hrrmAccess", hrrm);
+    const res = await createStaffUserAction(fd);
     setLoading(false);
     if (!res.ok) {
       setError(res.error);
@@ -66,7 +60,7 @@ export function CreateStaffButton({ departments }: Props) {
             onClick={() => setOpen(false)}
           />
           <div
-            className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-[#141416] p-6 shadow-xl"
+            className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-surface-elevated p-6 shadow-xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-staff-title"
@@ -81,7 +75,11 @@ export function CreateStaffButton({ departments }: Props) {
               <strong className="text-zinc-400">View</strong> is read-only;{" "}
               <strong className="text-zinc-400">Manage</strong> can change data.
             </p>
-            <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+            <form
+              className="mt-6 space-y-4"
+              encType="multipart/form-data"
+              onSubmit={onSubmit}
+            >
               <div>
                 <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor="fullName">
                   Full name
@@ -119,11 +117,33 @@ export function CreateStaffButton({ departments }: Props) {
                 </label>
                 <Input id="jobTitle" name="jobTitle" autoComplete="organization-title" />
               </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor="hireDate">
+                    Hire date
+                  </label>
+                  <Input id="hireDate" name="hireDate" type="date" />
+                </div>
+                <div>
+                  <label
+                    className="mb-1 block text-xs font-medium text-zinc-400"
+                    htmlFor="monthlySalary"
+                  >
+                    Monthly salary (USD)
+                  </label>
+                  <Input
+                    id="monthlySalary"
+                    name="monthlySalary"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="e.g. 4500"
+                  />
+                  <p className="mt-1 text-[10px] text-zinc-600">Shown in directory & payroll views.</p>
+                </div>
+              </div>
               <div>
-                <label
-                  className="mb-1 block text-xs font-medium text-zinc-400"
-                  htmlFor="departmentId"
-                >
+                <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor="departmentId">
                   Department (optional)
                 </label>
                 <select
@@ -139,6 +159,19 @@ export function CreateStaffButton({ departments }: Props) {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor="photo">
+                  Photo (optional)
+                </label>
+                <Input
+                  id="photo"
+                  name="photo"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="cursor-pointer text-sm file:mr-3 file:rounded-md file:border-0 file:bg-zinc-800 file:px-3 file:py-1.5 file:text-xs file:text-zinc-200"
+                />
+                <p className="mt-1 text-[10px] text-zinc-600">JPEG, PNG, or WebP · up to 5 MB.</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>

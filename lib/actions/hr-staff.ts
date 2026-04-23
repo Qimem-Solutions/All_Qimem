@@ -28,15 +28,7 @@ function revalidateHrSurface() {
 
 export type CreateStaffResult = { ok: true } | { ok: false; error: string };
 
-export async function createStaffUserAction(input: {
-  fullName: string;
-  email: string;
-  password?: string;
-  jobTitle?: string;
-  departmentId?: string | null;
-  hrmsAccess: ServiceAccessLevel;
-  hrrmAccess: ServiceAccessLevel;
-}): Promise<CreateStaffResult> {
+export async function createStaffUserAction(formData: FormData): Promise<CreateStaffResult> {
   const ctx = await getUserContext();
   if (!ctx?.userId) {
     return { ok: false, error: "You must be signed in." };
@@ -53,12 +45,32 @@ export async function createStaffUserAction(input: {
     return { ok: false, error: "Your profile is not linked to a property." };
   }
 
-  const fullName = input.fullName.trim();
-  const email = input.email.trim().toLowerCase();
-  const password = (input.password?.trim() || DEFAULT_STAFF_PASSWORD).trim();
-  const jobTitle = input.jobTitle?.trim() || null;
-  const rawDept = input.departmentId?.trim();
+  const fullName = String(formData.get("fullName") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = (String(formData.get("password") ?? "").trim() || DEFAULT_STAFF_PASSWORD).trim();
+  const jobTitle = String(formData.get("jobTitle") ?? "").trim() || null;
+  const rawDept = String(formData.get("departmentId") ?? "").trim();
   const departmentId = rawDept && rawDept.length > 0 ? rawDept : null;
+  const hireDateRaw = String(formData.get("hireDate") ?? "").trim();
+  const hireDate = hireDateRaw.length > 0 ? hireDateRaw : null;
+
+  const salaryRaw = String(formData.get("monthlySalary") ?? "").trim();
+  let monthlySalaryCents: number | null = null;
+  if (salaryRaw.length > 0) {
+    const n = Number.parseFloat(salaryRaw);
+    if (!Number.isFinite(n) || n < 0) {
+      return { ok: false, error: "Enter a valid monthly salary (0 or greater), or leave it blank." };
+    }
+    monthlySalaryCents = Math.round(n * 100);
+  }
+
+  const hrmsAccess = String(formData.get("hrmsAccess") ?? "view") as ServiceAccessLevel;
+  const hrrmAccess = String(formData.get("hrrmAccess") ?? "view") as ServiceAccessLevel;
+  if (!["none", "view", "manage"].includes(hrmsAccess) || !["none", "view", "manage"].includes(hrrmAccess)) {
+    return { ok: false, error: "Invalid access level." };
+  }
+
+  const photo = formData.get("photo");
 
   if (!fullName) {
     return { ok: false, error: "Enter the staff member’s name." };
@@ -160,6 +172,8 @@ export async function createStaffUserAction(input: {
     job_title: jobTitle,
     status: "active",
     user_id: userId,
+    monthly_salary_cents: monthlySalaryCents,
+    hire_date: hireDate,
   };
   if (departmentId) {
     employeePayload.department_id = departmentId;
@@ -175,10 +189,47 @@ export async function createStaffUserAction(input: {
     await admin.auth.admin.deleteUser(userId);
     const raw = empErr?.message ?? "unknown";
     const schemaHint =
-      /user_id|schema cache/i.test(raw)
-        ? " Run the SQL in `supabase/migrations/20260418140000_ensure_employees_user_id.sql` in Supabase → SQL Editor (or `supabase db push`). If it still errors: `NOTIFY pgrst, 'reload schema';`"
+      /user_id|schema cache|monthly_salary/i.test(raw)
+        ? " Run the latest Supabase migrations (employees.monthly_salary_cents). If it still errors: `NOTIFY pgrst, 'reload schema';`"
         : "";
     return { ok: false, error: `Employee record failed: ${raw}${schemaHint}` };
+  }
+
+  if (photo instanceof File && photo.size > 0) {
+    if (photo.size > 5 * 1024 * 1024) {
+      await admin.from("employees").delete().eq("id", empRow.id);
+      await admin.auth.admin.deleteUser(userId);
+      return { ok: false, error: "Photo must be 5 MB or smaller." };
+    }
+    const okTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!okTypes.includes(photo.type)) {
+      await admin.from("employees").delete().eq("id", empRow.id);
+      await admin.auth.admin.deleteUser(userId);
+      return { ok: false, error: "Photo must be JPEG, PNG, or WebP." };
+    }
+    const safe = (photo.name || "photo").replace(/[^\w.\-()+ ]/g, "_").slice(0, 120) || "photo.jpg";
+    const storagePath = `${tenantId}/${empRow.id}/${Date.now()}-${safe}`;
+    const buf = Buffer.from(await photo.arrayBuffer());
+    const { error: upErr } = await admin.storage.from("employee-photos").upload(storagePath, buf, {
+      contentType: photo.type,
+      upsert: false,
+    });
+    if (upErr) {
+      await admin.from("employees").delete().eq("id", empRow.id);
+      await admin.auth.admin.deleteUser(userId);
+      return { ok: false, error: upErr.message };
+    }
+    const { error: phErr } = await admin
+      .from("employees")
+      .update({ photo_url: storagePath })
+      .eq("id", empRow.id)
+      .eq("tenant_id", tenantId);
+    if (phErr) {
+      await admin.storage.from("employee-photos").remove([storagePath]);
+      await admin.from("employees").delete().eq("id", empRow.id);
+      await admin.auth.admin.deleteUser(userId);
+      return { ok: false, error: phErr.message };
+    }
   }
 
   const roles = [
@@ -186,13 +237,13 @@ export async function createStaffUserAction(input: {
       user_id: userId,
       tenant_id: tenantId,
       service: "hrms" as const,
-      access_level: input.hrmsAccess,
+      access_level: hrmsAccess,
     },
     {
       user_id: userId,
       tenant_id: tenantId,
       service: "hrrm" as const,
-      access_level: input.hrrmAccess,
+      access_level: hrrmAccess,
     },
   ];
 

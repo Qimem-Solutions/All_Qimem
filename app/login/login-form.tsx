@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { createClient } from "@/lib/supabase/client";
 import { dashboardPathForRole } from "@/lib/auth/roles";
 
@@ -81,30 +82,47 @@ export function LoginForm() {
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
       <div
-        className="absolute inset-0"
+        className="absolute inset-0 dark:hidden"
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(250,250,249,1) 0%, rgba(254,252,247,1) 45%, rgba(245,245,244,1) 100%)",
+        }}
+      />
+      <div
+        className="absolute inset-0 hidden dark:block"
         style={{
           background:
             "linear-gradient(135deg, rgba(15,60,65,0.85) 0%, rgba(8,12,18,0.95) 50%, rgba(10,10,12,1) 100%)",
         }}
       />
       <div
-        className="absolute inset-0 opacity-30"
+        className="absolute inset-0 opacity-50 dark:hidden"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h30v30H0z' fill='%23000000' fill-opacity='0.04'/%3E%3C/svg%3E")`,
+        }}
+      />
+      <div
+        className="absolute inset-0 hidden opacity-30 dark:block"
         style={{
           backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h30v30H0z' fill='%23ffffff' fill-opacity='0.02'/%3E%3C/svg%3E")`,
         }}
       />
 
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900/70 p-8 shadow-2xl backdrop-blur-xl">
+      <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
+        <ThemeToggle />
+      </div>
+
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-zinc-200/90 bg-white/90 p-8 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/70 dark:shadow-2xl">
         <div className="text-center">
           <h1 className="text-2xl font-bold tracking-[0.2em] text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
             ALLQIMEM
           </h1>
-          <p className="mt-2 text-[10px] font-medium uppercase tracking-[0.35em] text-zinc-300">
+          <p className="mt-2 text-[10px] font-medium uppercase tracking-[0.35em] text-foreground/80 dark:text-zinc-300">
             Unified sign-in
           </p>
         </div>
 
-        <p className="mt-6 text-center text-xs text-zinc-500">
+        <p className="mt-6 text-center text-xs text-foreground/85 dark:text-zinc-500">
           Enter your credentials — you&apos;ll be redirected to the right workspace from your
           profile.
         </p>
@@ -112,7 +130,7 @@ export function LoginForm() {
         <form className="mt-8 space-y-5" onSubmit={onSubmit}>
           {error ? (
             <div
-              className="rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-center text-sm text-red-200"
+              className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-center text-sm text-red-800 dark:border-red-500/40 dark:bg-red-950/40 dark:text-red-200"
               role="alert"
             >
               {error}
@@ -120,7 +138,7 @@ export function LoginForm() {
           ) : null}
 
           <div>
-            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-zinc-300">
+            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-foreground dark:text-zinc-300">
               Email
             </label>
             <Input
@@ -134,7 +152,7 @@ export function LoginForm() {
             />
           </div>
           <div>
-            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-zinc-300">
+            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-foreground dark:text-zinc-300">
               Password
             </label>
             <div className="relative">
@@ -151,7 +169,7 @@ export function LoginForm() {
               <button
                 type="button"
                 onClick={() => setShow(!show)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground/55 hover:text-foreground dark:text-zinc-500 dark:hover:text-zinc-300"
                 aria-label={show ? "Hide password" : "Show password"}
               >
                 {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -160,10 +178,10 @@ export function LoginForm() {
           </div>
 
           <div className="flex items-center justify-between text-sm">
-            <label className="flex cursor-pointer items-center gap-2 text-zinc-400">
+            <label className="flex cursor-pointer items-center gap-2 text-foreground/90 dark:text-zinc-400">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded border-zinc-600 bg-zinc-800"
+                className="h-4 w-4 rounded border-zinc-400 bg-white dark:border-zinc-600 dark:bg-zinc-800"
               />
               Remember me
             </label>
@@ -184,24 +202,24 @@ export function LoginForm() {
 
         <div className="relative my-8">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-zinc-700" />
+            <div className="w-full border-t border-zinc-300 dark:border-zinc-700" />
           </div>
-          <div className="relative flex justify-center text-[10px] uppercase tracking-widest text-zinc-500">
-            <span className="bg-zinc-900/90 px-3">Or continue with</span>
+          <div className="relative flex justify-center text-[10px] uppercase tracking-widest text-foreground/55">
+            <span className="bg-white/95 px-3 dark:bg-zinc-900/90">Or continue with</span>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
-            className="flex items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800/80 py-3 text-sm text-white hover:bg-zinc-800"
+            className="flex items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 py-3 text-sm text-foreground hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-white dark:hover:bg-zinc-800"
             onClick={() => setError("Connect Google in Supabase Auth → Providers, then wire OAuth.")}
           >
-            <span className="font-semibold text-blue-400">G</span> Google
+            <span className="font-semibold text-blue-500 dark:text-blue-400">G</span> Google
           </button>
           <button
             type="button"
-            className="flex items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800/80 py-3 text-sm text-white hover:bg-zinc-800"
+            className="flex items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 py-3 text-sm text-foreground hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-white dark:hover:bg-zinc-800"
             onClick={() =>
               setError("Connect Microsoft in Supabase Auth → Providers, then wire OAuth.")
             }
@@ -210,32 +228,40 @@ export function LoginForm() {
           </button>
         </div>
 
-        <p className="mt-8 text-center text-sm text-zinc-500">
+        <p className="mt-8 text-center text-sm text-foreground/80 dark:text-zinc-500">
           <button
             type="button"
             onClick={() => setLang("en")}
-            className={lang === "en" ? "text-gold" : "text-zinc-400 hover:text-white"}
+            className={
+              lang === "en"
+                ? "text-gold"
+                : "text-foreground/70 hover:text-foreground dark:text-zinc-400 dark:hover:text-white"
+            }
           >
             English
           </button>
-          <span className="mx-2 text-zinc-600">|</span>
+          <span className="mx-2 text-foreground/25 dark:text-zinc-600">|</span>
           <button
             type="button"
             onClick={() => setLang("ar")}
-            className={lang === "ar" ? "text-gold" : "text-zinc-400 hover:text-white"}
+            className={
+              lang === "ar"
+                ? "text-gold"
+                : "text-foreground/70 hover:text-foreground dark:text-zinc-400 dark:hover:text-white"
+            }
           >
             العربية
           </button>
         </p>
 
-        <p className="mt-6 text-center text-xs text-zinc-600">
+        <p className="mt-6 text-center text-xs text-foreground/65 dark:text-zinc-600">
           <Link href="/" className="hover:text-gold">
             ← Back to welcome
           </Link>
         </p>
       </div>
 
-      <footer className="pointer-events-none absolute bottom-0 left-0 right-0 flex flex-wrap items-center justify-between gap-2 border-t border-black/50 bg-black/80 px-6 py-3 text-[10px] text-zinc-600">
+      <footer className="pointer-events-none absolute bottom-0 left-0 right-0 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200/90 bg-white/80 px-6 py-3 text-[10px] text-foreground/55 dark:border-black/50 dark:bg-black/80 dark:text-zinc-600">
         <span>Version 0.1.0</span>
         <span>
           Powered by <span className="text-gold">Sovereign Standard</span>

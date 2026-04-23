@@ -19,7 +19,6 @@ export function HrmsShell({
       navItems={[...hrmsNav]}
       propertyTag="Majestic Onyx"
       userBlock={{ name: "Alex Sterling", role: "General Manager" }}
-      primaryAction={{ href: "/hrms/employees", label: "+ New request" }}
       readOnly={readOnly}
     >
       {children}

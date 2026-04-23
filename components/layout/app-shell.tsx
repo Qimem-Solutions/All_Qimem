@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HeaderProfileMenu } from "@/components/layout/header-profile-menu";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export type NavItem = {
   href: string;
@@ -51,13 +52,13 @@ export function AppShell({
 }: AppShellProps) {
   return (
     <div className="flex min-h-screen bg-background text-foreground">
-      <aside className="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-[#0c0c0d]">
+      <aside className="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-sidebar">
         <div className="border-b border-border px-5 py-6">
           <p className="text-xl font-semibold tracking-tight text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
             {brand.title}
           </p>
           {brand.subtitle ? (
-            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-500">
+            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-muted">
               {brand.subtitle}
             </p>
           ) : null}
@@ -76,7 +77,7 @@ export function AppShell({
                   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                   active
                     ? "bg-gold text-gold-foreground"
-                    : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
+                    : "text-muted hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/5",
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
@@ -114,7 +115,7 @@ export function AppShell({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{userBlock.name}</p>
-                <p className="truncate text-xs text-zinc-500">{userBlock.role}</p>
+                <p className="truncate text-xs text-muted">{userBlock.role}</p>
               </div>
             </div>
           </div>
@@ -133,11 +134,11 @@ export function AppShell({
           <div className="mx-auto flex max-w-xl flex-1 justify-center">
             {headerCenter ?? (
               <div className="relative w-full max-w-md">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 <input
                   type="search"
                   placeholder={searchPlaceholder}
-                  className="h-10 w-full rounded-full border border-border bg-surface py-2 pl-10 pr-4 text-sm text-foreground placeholder:text-zinc-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/50"
+                  className="h-10 w-full rounded-full border border-border bg-surface py-2 pl-10 pr-4 text-sm text-foreground placeholder:text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/50"
                 />
               </div>
             )}
@@ -147,7 +148,7 @@ export function AppShell({
             {showAppsShortcut ? (
               <button
                 type="button"
-                className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                className="rounded-lg p-2 text-muted hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/5"
                 aria-label="Apps"
               >
                 <LayoutGrid className="h-5 w-5" />
@@ -155,7 +156,7 @@ export function AppShell({
             ) : null}
             <button
               type="button"
-              className="relative rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+              className="relative rounded-lg p-2 text-muted hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/5"
               aria-label="Notifications"
             >
               <Bell className="h-5 w-5" />
@@ -163,17 +164,18 @@ export function AppShell({
             </button>
             <button
               type="button"
-              className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+              className="rounded-lg p-2 text-muted hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/5"
               aria-label="Settings"
             >
               <Settings className="h-5 w-5" />
             </button>
+            <ThemeToggle size="sm" />
             <HeaderProfileMenu />
           </div>
         </header>
         <main className="flex-1 p-6 lg:p-8">
           {readOnly ? (
-            <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-950/30 px-4 py-2 text-sm text-amber-100">
+            <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-100/90 px-4 py-2 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
               <strong>View-only access.</strong> You can browse this module but cannot create or edit
               records.
             </p>

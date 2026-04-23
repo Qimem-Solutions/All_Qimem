@@ -109,6 +109,9 @@ export type JobCandidateRow = {
   notes: string | null;
   created_at: string | null;
   requisition_title: string | null;
+  department_name: string | null;
+  cv_storage_path: string | null;
+  hired_employee_id: string | null;
 };
 
 export async function fetchJobCandidates(tenantId: string): Promise<{
@@ -120,7 +123,9 @@ export async function fetchJobCandidates(tenantId: string): Promise<{
 
   const { data: rows, error: qErr } = await db
     .from("job_candidates")
-    .select("id, requisition_id, full_name, email, phone, stage, notes, created_at")
+    .select(
+      "id, requisition_id, full_name, email, phone, stage, notes, created_at, cv_storage_path, hired_employee_id",
+    )
     .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false });
 
@@ -128,16 +133,31 @@ export async function fetchJobCandidates(tenantId: string): Promise<{
 
   const reqIds = [...new Set((rows ?? []).map((r) => r.requisition_id))];
   let titleMap = new Map<string, string>();
+  let reqDeptMap = new Map<string, string | null>();
   if (reqIds.length) {
-    const { data: reqs } = await db.from("job_requisitions").select("id, title").in("id", reqIds);
-    titleMap = new Map((reqs ?? []).map((x) => [x.id, x.title]));
+    const { data: reqs } = await db.from("job_requisitions").select("id, title, department_id").in("id", reqIds);
+    for (const x of reqs ?? []) {
+      titleMap.set(x.id, x.title);
+      reqDeptMap.set(x.id, x.department_id);
+    }
+  }
+
+  const deptIds = [...new Set([...reqDeptMap.values()].filter(Boolean))] as string[];
+  let deptNameMap = new Map<string, string>();
+  if (deptIds.length) {
+    const { data: depts } = await db.from("departments").select("id, name").in("id", deptIds);
+    deptNameMap = new Map((depts ?? []).map((d) => [d.id, d.name]));
   }
 
   return {
-    rows: (rows ?? []).map((r) => ({
-      ...r,
-      requisition_title: titleMap.get(r.requisition_id) ?? null,
-    })),
+    rows: (rows ?? []).map((r) => {
+      const did = reqDeptMap.get(r.requisition_id);
+      return {
+        ...r,
+        requisition_title: titleMap.get(r.requisition_id) ?? null,
+        department_name: did ? deptNameMap.get(did) ?? null : null,
+      };
+    }),
     error: null,
   };
 }

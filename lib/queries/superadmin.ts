@@ -7,6 +7,8 @@ export type TenantRow = {
   name: string;
   slug: string;
   region: string | null;
+  description: string | null;
+  cover_image_url: string | null;
   created_at: string;
   plan: string | null;
   subStatus: string | null;
@@ -70,7 +72,7 @@ export async function fetchTenantsWithSubscriptions(): Promise<{
 
   const { data: tenants, error: tErr } = await supabase
     .from("tenants")
-    .select("id, name, slug, region, created_at")
+    .select("id, name, slug, region, description, cover_image_url, created_at")
     .order("created_at", { ascending: false });
 
   if (tErr) {
@@ -102,11 +104,14 @@ export async function fetchTenantsWithSubscriptions(): Promise<{
 
   const rows: TenantRow[] = (tenants ?? []).map((t) => {
     const sub = latestSubByTenant.get(t.id);
+    const tRow = t as typeof t & { description?: string | null; cover_image_url?: string | null };
     return {
       id: t.id,
       name: t.name,
       slug: t.slug,
       region: t.region,
+      description: tRow.description ?? null,
+      cover_image_url: tRow.cover_image_url ?? null,
       created_at: t.created_at ?? "",
       plan: sub?.plan ?? null,
       subStatus: sub?.status ?? null,

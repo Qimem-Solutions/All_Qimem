@@ -30,7 +30,7 @@ export function StaffModulePicker({ notice, modules }: Props) {
         </p>
       ) : null}
 
-      <div className="w-full max-w-5xl rounded-2xl border border-border bg-[#141416] p-6 shadow-2xl ring-1 ring-white/5 lg:p-8">
+      <div className="w-full max-w-5xl rounded-2xl border border-border bg-surface-elevated p-6 shadow-2xl ring-1 ring-foreground/5 dark:ring-white/5 lg:p-8">
         <div className="text-center">
           <h1 className="text-xl font-semibold text-white [font-family:var(--font-outfit),system-ui,sans-serif] lg:text-2xl">
             Choose a module

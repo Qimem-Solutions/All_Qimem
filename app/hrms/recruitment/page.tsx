@@ -38,8 +38,7 @@ export default async function HrmsRecruitmentPage() {
           Recruitment
         </h1>
         <p className="mt-1 max-w-2xl text-sm text-zinc-500">
-          Requisitions and candidates in <code className="text-zinc-400">job_requisitions</code> and{" "}
-          <code className="text-zinc-400">job_candidates</code>.
+          Submit applications with CV and department, track status, and promote passes into the employee directory.
         </p>
       </div>
 
@@ -52,6 +51,7 @@ export default async function HrmsRecruitmentPage() {
       <HrmsRecruitmentClient
         tenantId={tenantId}
         canManage={manage}
+        canApply
         requisitions={reqs.rows}
         candidates={cands.rows}
         departments={depts.rows}
