@@ -5,14 +5,33 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatMoneyCents } from "@/lib/format";
+import { formatBirrCents } from "@/lib/format";
 import type { AvailabilityMatrix, AvailabilityRow } from "@/lib/queries/hrrm-availability";
-import { addDaysToIso, nightsBetween, quoteFromNightlyCents } from "@/lib/hrrm-pricing";
+import { addDaysToIso, nightsBetween } from "@/lib/hrrm-pricing";
 import { searchGuestsHrrmAction, createQuickReservationAction } from "@/lib/actions/hrrm-availability";
 import { cn } from "@/lib/utils";
-import { ChevronLeft, ChevronRight, Filter } from "lucide-react";
+import {
+  CalendarRange,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Hotel,
+  Search,
+  TrendingUp,
+} from "lucide-react";
 
 type GuestPick = { id: string; full_name: string; phone: string | null };
+
+function infoLabelClass() {
+  return "text-[11px] uppercase tracking-[0.18em] text-zinc-500";
+}
+
+function occupancyTone(available: number, physical: number) {
+  if (physical <= 0) return "text-zinc-500 border-white/10 bg-white/[0.03]";
+  if (available <= 0) return "text-rose-200 border-rose-400/20 bg-rose-400/10";
+  if (available === physical) return "text-emerald-100 border-emerald-400/20 bg-emerald-400/10";
+  return "text-amber-100 border-amber-300/20 bg-amber-300/10";
+}
 
 export function AvailabilityPageClient({
   initial,
@@ -94,14 +113,21 @@ export function AvailabilityPageClient({
     [matrix.rows, selectedTypeId],
   );
 
-  const nightlyCents = selectedRow?.cells[0]?.priceCents ?? 0;
+  const nightlyCents = selectedRow?.nightlyCents ?? 0;
   const nights = useMemo(() => nightsBetween(checkIn, checkOut), [checkIn, checkOut]);
-  const quote = useMemo(
-    () => (nights > 0 && nightlyCents > 0 ? quoteFromNightlyCents(nightlyCents, nights) : null),
-    [nightlyCents, nights],
-  );
-
+  const totalCents = useMemo(() => (nights > 0 && nightlyCents > 0 ? nightlyCents * nights : 0), [nightlyCents, nights]);
   const adults = Math.min(2, selectedRow?.capacity ?? 2);
+
+  const totalAvailableToday = useMemo(() => {
+    const todayIndex = matrix.days.findIndex((day) => day.date === todayIso);
+    if (todayIndex < 0) return 0;
+    return visibleRows.reduce((sum, row) => sum + (row.cells[todayIndex]?.available ?? 0), 0);
+  }, [matrix.days, todayIso, visibleRows]);
+
+  const maxOccupancyPct = useMemo(() => {
+    if (matrix.occupancyByDate.length === 0) return 0;
+    return Math.round(Math.max(...matrix.occupancyByDate) * 100);
+  }, [matrix.occupancyByDate]);
 
   function onCellClick(row: AvailabilityRow, date: string) {
     setSelectedTypeId(row.roomTypeId);
@@ -117,7 +143,7 @@ export function AvailabilityPageClient({
       return;
     }
     if (!selectedTypeId) {
-      setFormError("Choose a room type from the grid (click a cell).");
+      setFormError("Choose a room type from the grid first.");
       return;
     }
     if (nights < 1) {
@@ -158,336 +184,396 @@ export function AvailabilityPageClient({
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-white [font-family:var(--font-outfit),system-ui,sans-serif]">
-            Availability & inventory
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">Nightly availability by room type for the selected horizon.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="secondary"
-              className="h-9 w-9 shrink-0 p-0"
-              aria-label="Previous week"
-              onClick={() => setRange(addDaysToIso(startDate, -7), dayCount)}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-0">
-              <p className="text-center text-xs text-zinc-500">Horizon</p>
-              <p className="whitespace-nowrap text-sm font-medium text-white">{formatRangeLabel()}</p>
+      <section className="overflow-hidden rounded-[30px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.14),transparent_28%),radial-gradient(circle_at_top_right,rgba(251,191,36,0.14),transparent_26%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(17,24,39,0.9))] px-6 py-6 shadow-[0_28px_90px_-45px_rgba(15,23,42,0.95)]">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(380px,0.95fr)] xl:items-end">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-teal-300/20 bg-teal-300/10 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.22em] text-teal-100/90">
+              <Hotel className="h-3.5 w-3.5" />
+              Availability Board
             </div>
-            <Button
-              type="button"
-              variant="secondary"
-              className="h-9 w-9 shrink-0 p-0"
-              aria-label="Next week"
-              onClick={() => setRange(addDaysToIso(startDate, 7), dayCount)}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white [font-family:var(--font-outfit),system-ui,sans-serif]">
+              Availability by date range and room type
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-300">
+              Review nightly room-type availability across the selected horizon, then move directly into a hold or booking without leaving the page.
+            </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <div className="flex items-end gap-2">
-              <div>
-                <label className="mb-0.5 block text-[10px] text-zinc-500">From</label>
-                <Input
-                  type="date"
-                  className="h-9 w-[9.5rem] text-sm"
-                  value={startDate}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v) setRange(v, dayCount);
-                  }}
-                />
-              </div>
-              <div>
-                <label className="mb-0.5 block text-[10px] text-zinc-500">Days</label>
-                <Input
-                  type="number"
-                  min={3}
-                  max={14}
-                  className="h-9 w-16 text-sm"
-                  value={dayCount}
-                  onChange={(e) => {
-                    const n = Math.min(14, Math.max(3, parseInt(e.target.value, 10) || 7));
-                    setRange(startDate, n);
-                  }}
-                />
-              </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+              <p className={infoLabelClass()}>Horizon</p>
+              <p className="mt-3 text-base font-semibold text-white">{formatRangeLabel()}</p>
+              <p className="mt-1 text-xs text-zinc-400">{dayCount} days in view</p>
             </div>
-            <div className="relative">
-              <Button type="button" variant="secondary" className="gap-2" onClick={() => setTypeFilterOpen((o) => !o)}>
-                <Filter className="h-4 w-4" /> Room types
-              </Button>
-              {typeFilterOpen ? (
-                <div
-                  className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-border bg-surface-elevated p-3 text-left shadow-lg"
-                  role="dialog"
-                  aria-label="Filter room types"
-                >
-                  <p className="mb-2 text-xs text-zinc-500">Show or hide types in the grid.</p>
-                  <ul className="max-h-48 space-y-1 overflow-y-auto">
-                    {initial.rows.map((r) => (
-                      <li key={r.roomTypeId}>
-                        <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-200">
-                          <input
-                            type="checkbox"
-                            className="rounded border-border"
-                            checked={!hiddenTypes.has(r.roomTypeId)}
-                            onChange={() => {
-                              setHiddenTypes((prev) => {
-                                const n = new Set(prev);
-                                if (n.has(r.roomTypeId)) n.delete(r.roomTypeId);
-                                else n.add(r.roomTypeId);
-                                return n;
-                              });
-                            }}
-                          />
-                          {r.roomTypeName}
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+              <p className={infoLabelClass()}>Visible types</p>
+              <p className="mt-3 text-2xl font-semibold text-white">{visibleRows.length}</p>
+              <p className="mt-1 text-xs text-zinc-400">{matrix.rows.length} total room types</p>
+            </div>
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+              <p className={infoLabelClass()}>Available today</p>
+              <p className="mt-3 text-2xl font-semibold text-white">{totalAvailableToday}</p>
+              <p className="mt-1 text-xs text-zinc-400">{matrix.totalPhysicalRooms} sellable rooms</p>
+            </div>
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+              <p className={infoLabelClass()}>Peak occupancy</p>
+              <p className="mt-3 text-2xl font-semibold text-white">{maxOccupancyPct}%</p>
+              <p className="mt-1 text-xs text-zinc-400">Highest nightly load in this range</p>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        <Card className="overflow-x-auto xl:col-span-2">
-          <CardHeader>
-            <CardTitle>Inventory grid</CardTitle>
-            <CardDescription>Green = rooms left · Red = sold out · price is nightly (rate plan).</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {visibleRows.length === 0 ? (
-              <p className="text-sm text-zinc-500">No room types to show. Adjust filters or add room types in Inventory.</p>
-            ) : (
-              <table className="w-full min-w-[720px] text-center text-xs">
-                <thead>
-                  <tr className="border-b border-border text-zinc-500">
-                    <th className="pb-3 text-left">Room type</th>
-                    {matrix.days.map((d) => {
-                      const isToday = d.date === todayIso;
-                      return (
-                        <th
-                          key={d.date}
-                          className={cn("px-0.5 pb-3", isToday && "rounded-t bg-gold/15 text-gold")}
-                        >
-                          {d.label}
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleRows.map((row) => (
-                    <tr key={row.roomTypeId} className="border-b border-border/40">
-                      <td className="py-3 text-left font-medium text-white">{row.roomTypeName}</td>
-                      {row.cells.map((cell) => {
-                        const sold = cell.physical > 0 && cell.available === 0;
-                        const isSel = selectedTypeId === row.roomTypeId && selectedNight === cell.date;
-                        return (
-                          <td
-                            key={cell.date}
-                            className={cn(
-                              "cursor-pointer px-0.5 py-3 transition-colors",
-                              cell.date === todayIso && "bg-gold/10",
-                              isSel && "ring-1 ring-gold/60",
-                              sold ? "text-red-400" : "text-emerald-400",
-                            )}
-                            onClick={() => onCellClick(row, cell.date)}
-                            title="Set quick reservation to this type and first night"
-                          >
-                            {cell.priceCents > 0 ? (
-                              <span>
-                                {formatMoneyCents(cell.priceCents)} · {cell.available}
-                              </span>
-                            ) : (
-                              <span className="text-zinc-500">— · {cell.available}</span>
-                            )}
-                            {sold ? <span className="block text-[9px] text-red-400/80">Full</span> : null}
+      <Card className="overflow-hidden rounded-[30px] border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(15,23,42,0.92))] shadow-[0_28px_90px_-45px_rgba(15,23,42,0.92)]">
+        <CardHeader className="border-b border-white/10 pb-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <CardTitle className="text-white">Date range filters</CardTitle>
+              <CardDescription className="mt-2 text-zinc-400">
+                Shift the horizon, change the number of days, and hide room types you do not want in the matrix.
+              </CardDescription>
+            </div>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+              <div className="flex items-center gap-2 rounded-[22px] border border-white/10 bg-white/[0.03] px-3 py-3">
+                <Button type="button" variant="secondary" className="h-9 w-9 rounded-xl p-0" aria-label="Previous week" onClick={() => setRange(addDaysToIso(startDate, -7), dayCount)}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <div className="min-w-[10rem] text-center">
+                  <p className={infoLabelClass()}>Current range</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatRangeLabel()}</p>
+                </div>
+                <Button type="button" variant="secondary" className="h-9 w-9 rounded-xl p-0" aria-label="Next week" onClick={() => setRange(addDaysToIso(startDate, 7), dayCount)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-[10rem_6rem_auto]">
+                <div>
+                  <label className={infoLabelClass()}>From</label>
+                  <Input
+                    type="date"
+                    className="mt-1.5 border-white/10 bg-slate-950/40"
+                    value={startDate}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v) setRange(v, dayCount);
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className={infoLabelClass()}>Days</label>
+                  <Input
+                    type="number"
+                    min={3}
+                    max={14}
+                    className="mt-1.5 border-white/10 bg-slate-950/40"
+                    value={dayCount}
+                    onChange={(e) => {
+                      const n = Math.min(14, Math.max(3, parseInt(e.target.value, 10) || 7));
+                      setRange(startDate, n);
+                    }}
+                  />
+                </div>
+                <div className="relative">
+                  <label className={infoLabelClass()}>Room types</label>
+                  <Button type="button" variant="secondary" className="mt-1.5 h-10 rounded-xl border border-white/10 bg-white/[0.04] px-4 hover:bg-white/[0.08]" onClick={() => setTypeFilterOpen((o) => !o)}>
+                    <Filter className="h-4 w-4" />
+                    Filter
+                  </Button>
+                  {typeFilterOpen ? (
+                    <div className="absolute right-0 z-20 mt-2 w-72 rounded-[22px] border border-white/10 bg-surface-elevated/95 p-4 shadow-2xl backdrop-blur-xl" role="dialog" aria-label="Filter room types">
+                      <p className="mb-3 text-xs text-zinc-500">Show or hide room types in the grid.</p>
+                      <ul className="max-h-56 space-y-2 overflow-y-auto">
+                        {matrix.rows.map((r) => (
+                          <li key={r.roomTypeId}>
+                            <label className="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2 text-sm text-zinc-200 hover:bg-white/[0.04]">
+                              <input
+                                type="checkbox"
+                                className="rounded border-border"
+                                checked={!hiddenTypes.has(r.roomTypeId)}
+                                onChange={() => {
+                                  setHiddenTypes((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(r.roomTypeId)) next.delete(r.roomTypeId);
+                                    else next.add(r.roomTypeId);
+                                    return next;
+                                  });
+                                }}
+                              />
+                              <span className="flex-1">{r.roomTypeName}</span>
+                              <span className="text-xs text-zinc-500">{r.capacity ?? "—"} cap</span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.8fr)]">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-white">Availability grid</p>
+                  <p className="text-xs text-zinc-500">Click any cell to use that room type and start night in the booking panel.</p>
+                </div>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-emerald-100">Ready</span>
+                  <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-amber-100">Low</span>
+                  <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-1 text-rose-100">Full</span>
+                </div>
+              </div>
+
+              {visibleRows.length === 0 ? (
+                <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.02] p-8 text-center text-sm text-zinc-500">
+                  No room types to show. Adjust the filters or add room types in inventory.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-[26px] border border-white/10 bg-white/[0.02]">
+                  <table className="w-full min-w-[900px] text-center text-xs">
+                    <thead>
+                      <tr className="border-b border-white/10 bg-white/[0.03] text-zinc-500">
+                        <th className="sticky left-0 z-10 bg-[rgba(15,23,42,0.96)] px-4 py-4 text-left text-[10px] uppercase tracking-[0.18em]">Room type</th>
+                        {matrix.days.map((d) => {
+                          const isToday = d.date === todayIso;
+                          return (
+                            <th key={d.date} className={cn("px-1 py-4 text-[10px] uppercase tracking-[0.18em]", isToday && "bg-gold/10 text-gold")}>
+                              {d.label}
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleRows.map((row) => (
+                        <tr key={row.roomTypeId} className="border-b border-white/10 last:border-b-0">
+                          <td className="sticky left-0 z-10 bg-[rgba(15,23,42,0.96)] px-4 py-4 text-left">
+                            <p className="text-sm font-medium text-white">{row.roomTypeName}</p>
+                            <p className="mt-1 text-[11px] text-zinc-500">
+                              {row.capacity != null ? `${row.capacity} guests` : "No cap"} · {row.nightlyCents ? formatBirrCents(row.nightlyCents) : "No price"}
+                            </p>
                           </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick reservation</CardTitle>
-            <CardDescription>Hold or confirm from availability. Requires HRRM manage access.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {formError ? <p className="text-sm text-red-400">{formError}</p> : null}
-            <div className="relative">
-              <label className="mb-1 block text-xs text-zinc-500">Guest lookup</label>
-              <Input
-                placeholder="Name, phone, or guest ID"
-                value={guestQuery}
-                onChange={(e) => {
-                  setGuestQuery(e.target.value);
-                  if (!e.target.value.trim()) setGuest(null);
-                }}
-                onFocus={() => guestHits.length > 0 && setGuestOpen(true)}
-              />
-              {guest && (
-                <p className="mt-1 text-xs text-gold">
-                  Selected: {guest.full_name}
-                  {guest.phone ? ` · ${guest.phone}` : ""}
-                </p>
+                          {row.cells.map((cell) => {
+                            const soldOut = cell.physical > 0 && cell.available === 0;
+                            const isSelected = selectedTypeId === row.roomTypeId && selectedNight === cell.date;
+                            const low = cell.physical > 0 && cell.available > 0 && cell.available <= Math.max(1, Math.floor(cell.physical / 3));
+                            return (
+                              <td
+                                key={cell.date}
+                                className={cn(
+                                  "px-1 py-3",
+                                  cell.date === todayIso && "bg-gold/5",
+                                )}
+                              >
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "w-full rounded-2xl border px-2 py-3 text-left transition hover:scale-[0.99] hover:bg-white/[0.07]",
+                                    occupancyTone(cell.available, cell.physical),
+                                    isSelected && "ring-1 ring-gold/60",
+                                  )}
+                                  onClick={() => onCellClick(row, cell.date)}
+                                  title="Use this room type and night for quick reservation"
+                                >
+                                  <span className="block text-[11px] font-medium">{cell.available}/{cell.physical}</span>
+                                  <span className="mt-1 block text-[10px] opacity-80">
+                                    {cell.priceCents > 0 ? formatBirrCents(cell.priceCents) : "—"}
+                                  </span>
+                                  <span className="mt-1 block text-[10px] opacity-80">
+                                    {soldOut ? "Full" : low ? "Low" : "Open"}
+                                  </span>
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
-              {guestOpen && guestHits.length > 0 ? (
-                <ul
-                  className="absolute left-0 right-0 z-10 mt-1 max-h-40 overflow-y-auto rounded-md border border-border bg-surface-elevated py-1 text-left text-sm shadow-md"
-                  role="listbox"
-                >
-                  {guestHits.map((g) => (
-                    <li key={g.id}>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-left text-foreground hover:bg-foreground/5"
-                        onClick={() => {
-                          setGuest(g);
-                          setGuestQuery(g.full_name);
-                          setGuestOpen(false);
-                        }}
-                      >
-                        {g.full_name}
-                        {g.phone ? <span className="ml-1 text-zinc-500">({g.phone})</span> : null}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="mb-1 block text-xs text-zinc-500">Check-in</label>
-                <Input type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-zinc-500">Check-out</label>
-                <Input type="date" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
-              </div>
-            </div>
-            <div className="rounded-lg border border-border bg-surface/50 p-3 text-sm">
-              <p className="font-medium text-white">
-                {selectedRow ? selectedRow.roomTypeName : "Select a room type"}
-              </p>
-              <p className="text-xs text-zinc-500">
-                {nights > 0 ? `${nights} night${nights === 1 ? "" : "s"}` : "—"} · {adults} adult{adults === 1 ? "" : "s"}{" "}
-                (capacity cap)
-              </p>
-            </div>
-            {quote && selectedRow && nightlyCents > 0 ? (
-              <div className="space-y-1 text-sm text-zinc-400">
-                <div className="flex justify-between">
-                  <span>Nightly (avg)</span>
-                  <span>{formatMoneyCents(nightlyCents)}</span>
+
+            <Card className="rounded-[26px] border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(15,23,42,0.55))]">
+              <CardHeader>
+                <CardTitle className="text-white">Quick reservation</CardTitle>
+                <CardDescription className="text-zinc-400">Build a booking directly from the availability view.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {formError ? <p className="rounded-2xl border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-200">{formError}</p> : null}
+
+                <div className="relative">
+                  <label className={infoLabelClass()}>Guest lookup</label>
+                  <div className="relative mt-1.5">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                    <Input
+                      className="border-white/10 bg-slate-950/40 pl-10"
+                      placeholder="Name, phone, or guest ID"
+                      value={guestQuery}
+                      onChange={(e) => {
+                        setGuestQuery(e.target.value);
+                        if (!e.target.value.trim()) setGuest(null);
+                      }}
+                      onFocus={() => guestHits.length > 0 && setGuestOpen(true)}
+                    />
+                  </div>
+                  {guest ? (
+                    <p className="mt-2 text-xs text-teal-100">
+                      Selected: {guest.full_name}
+                      {guest.phone ? ` · ${guest.phone}` : ""}
+                    </p>
+                  ) : null}
+                  {guestOpen && guestHits.length > 0 ? (
+                    <ul className="absolute left-0 right-0 z-10 mt-2 max-h-44 overflow-y-auto rounded-[18px] border border-white/10 bg-surface-elevated/95 py-1 text-left text-sm shadow-md backdrop-blur-xl" role="listbox">
+                      {guestHits.map((g) => (
+                        <li key={g.id}>
+                          <button
+                            type="button"
+                            className="w-full px-3 py-2 text-left text-foreground hover:bg-foreground/5"
+                            onClick={() => {
+                              setGuest(g);
+                              setGuestQuery(g.full_name);
+                              setGuestOpen(false);
+                            }}
+                          >
+                            {g.full_name}
+                            {g.phone ? <span className="ml-1 text-zinc-500">({g.phone})</span> : null}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
-                <div className="flex justify-between">
-                  <span>Resort fees</span>
-                  <span>{formatMoneyCents(quote.resort)}</span>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={infoLabelClass()}>Check-in</label>
+                    <Input className="mt-1.5 border-white/10 bg-slate-950/40" type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className={infoLabelClass()}>Check-out</label>
+                    <Input className="mt-1.5 border-white/10 bg-slate-950/40" type="date" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span>Taxes (est.)</span>
-                  <span>{formatMoneyCents(quote.tax)}</span>
+
+                <div className="rounded-[22px] border border-white/10 bg-slate-950/30 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className={infoLabelClass()}>Selected room type</p>
+                      <p className="mt-2 text-base font-medium text-white">
+                        {selectedRow ? selectedRow.roomTypeName : "Select a room type from the grid"}
+                      </p>
+                    </div>
+                    <CalendarRange className="mt-1 h-4 w-4 text-zinc-500" />
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    {nights > 0 ? `${nights} night${nights === 1 ? "" : "s"}` : "—"} · {adults} adult{adults === 1 ? "" : "s"} capacity guide
+                  </p>
                 </div>
-                <div className="flex justify-between border-t border-border pt-2 text-lg font-semibold text-gold">
-                  <span>Total (est.)</span>
-                  <span>{formatMoneyCents(quote.total)}</span>
+
+                {selectedRow && totalCents > 0 ? (
+                  <div className="rounded-[22px] border border-amber-300/15 bg-amber-300/10 p-4">
+                    <div className="space-y-2 text-sm text-zinc-200">
+                      <div className="flex justify-between">
+                        <span>Nightly price</span>
+                        <span>{formatBirrCents(nightlyCents)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Nights</span>
+                        <span>{nights}</span>
+                      </div>
+                      <div className="flex justify-between border-t border-amber-300/20 pt-2 text-lg font-semibold text-amber-100">
+                        <span>Total</span>
+                        <span>{formatBirrCents(totalCents)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-zinc-500">Choose a priced room type and a valid date range to see the total stay amount.</p>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="ghost"
+                    className="rounded-2xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"
+                    type="button"
+                    disabled={!canManage || saving}
+                    onClick={() => void onSubmit("hold")}
+                  >
+                    Draft hold
+                  </Button>
+                  <Button
+                    className="rounded-2xl"
+                    type="button"
+                    disabled={!canManage || saving}
+                    onClick={() => void onSubmit("confirm")}
+                  >
+                    {saving ? "Saving…" : "Confirm booking"}
+                  </Button>
                 </div>
-              </div>
-            ) : (
-              <p className="text-xs text-zinc-500">Choose a type with a rate plan and a valid date range to see pricing.</p>
-            )}
-            <div className="flex gap-2">
-              <Button
-                variant="ghost"
-                className="flex-1"
-                type="button"
-                disabled={!canManage || saving}
-                onClick={() => void onSubmit("hold")}
-              >
-                Draft hold
-              </Button>
-              <Button className="flex-1" type="button" disabled={!canManage || saving} onClick={() => void onSubmit("confirm")}>
-                {saving ? "Saving…" : "Confirm booking"}
-              </Button>
-            </div>
-            {!canManage ? (
-              <p className="text-xs text-amber-200/80">View-only: ask an administrator for manage access to create reservations.</p>
-            ) : null}
-          </CardContent>
-        </Card>
-      </div>
+
+                {!canManage ? (
+                  <p className="text-xs text-amber-200/80">View-only: ask an administrator for manage access to create reservations.</p>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
+        <Card className="rounded-[26px] border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(15,23,42,0.92))]">
           <CardHeader>
-            <CardTitle className="text-base">Occupancy forecast</CardTitle>
-            <CardDescription>Booked room-nights ÷ total sellable rooms for each night in view.</CardDescription>
+            <CardTitle className="text-base text-white">Occupancy forecast</CardTitle>
+            <CardDescription className="text-zinc-400">Booked room-nights divided by total sellable rooms for each day in view.</CardDescription>
           </CardHeader>
           <CardContent>
             {matrix.occupancyByDate.length === 0 ? (
               <p className="text-sm text-zinc-500">No data.</p>
             ) : (
-              <div className="flex h-32 items-end gap-1">
+              <div className="flex h-36 items-end gap-2">
                 {matrix.occupancyByDate.map((pct, i) => (
-                  <div
-                    key={matrix.days[i]!.date}
-                    className="group relative flex flex-1 flex-col items-center"
-                  >
+                  <div key={matrix.days[i]!.date} className="group flex flex-1 flex-col items-center">
                     <div
-                      className={cn(
-                        "w-full rounded-t",
-                        matrix.days[i]!.date === todayIso ? "bg-gold/80" : "bg-zinc-700/60",
-                      )}
-                      style={{ height: `${Math.max(4, Math.round(pct * 100))}%` }}
+                      className={cn("w-full rounded-t-xl", matrix.days[i]!.date === todayIso ? "bg-gold/80" : "bg-zinc-700/70")}
+                      style={{ height: `${Math.max(8, Math.round(pct * 100))}%` }}
                     />
-                    <span className="mt-1 max-w-full truncate text-[9px] text-zinc-500 group-hover:opacity-100 sm:opacity-0">
-                      {Math.round(pct * 100)}%
-                    </span>
+                    <span className="mt-2 text-[10px] text-zinc-500">{Math.round(pct * 100)}%</span>
                   </div>
                 ))}
               </div>
             )}
           </CardContent>
         </Card>
-        <Card>
+
+        <Card className="rounded-[26px] border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(15,23,42,0.92))]">
           <CardHeader>
-            <CardTitle className="text-base">Average daily rate (hint)</CardTitle>
-            <CardDescription>Weighted by room count per type and active rate plans.</CardDescription>
+            <CardTitle className="flex items-center gap-2 text-base text-white">
+              <TrendingUp className="h-4 w-4 text-teal-200" />
+              Average daily rate
+            </CardTitle>
+            <CardDescription className="text-zinc-400">Weighted by room count per type and the current room type pricing.</CardDescription>
           </CardHeader>
           <CardContent>
             {matrix.adrCents != null && matrix.adrCents > 0 ? (
               <>
-                <p className="text-3xl font-semibold text-white">{formatMoneyCents(matrix.adrCents)}</p>
-                <div className="mt-4 space-y-2 text-sm text-zinc-400">
+                <p className="text-3xl font-semibold text-white">{formatBirrCents(matrix.adrCents)}</p>
+                <div className="mt-5 space-y-2 text-sm text-zinc-400">
                   {matrix.rows.slice(0, 6).map((r) => (
-                    <div key={r.roomTypeId} className="flex justify-between">
+                    <div key={r.roomTypeId} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
                       <span className="truncate pr-2">{r.roomTypeName}</span>
-                      <span>
-                        {r.cells[0]?.priceCents ? formatMoneyCents(r.cells[0].priceCents) : "—"}
-                      </span>
+                      <span>{r.nightlyCents ? formatBirrCents(r.nightlyCents) : "—"}</span>
                     </div>
                   ))}
                 </div>
               </>
             ) : (
-              <p className="text-sm text-zinc-500">Add rate plans in Rates &amp; pricing (and optionally link a plan to each room type).</p>
+              <div className="rounded-[20px] border border-dashed border-white/10 bg-white/[0.02] p-5 text-sm text-zinc-500">
+                Add room type prices in Rates &amp; pricing to see ADR here.
+              </div>
             )}
           </CardContent>
         </Card>

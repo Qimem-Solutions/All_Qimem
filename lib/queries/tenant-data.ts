@@ -304,6 +304,7 @@ export type ReservationLedgerRow = {
   check_in: string;
   check_out: string;
   status: string;
+  payment_status: string | null;
   balance_cents: number;
   created_at: string;
   guest_name: string;
@@ -320,7 +321,7 @@ export async function fetchReservationsWithGuests(
   const { data: reservations, error: resErr } = await supabase
     .from("reservations")
     .select(
-      "id, guest_id, room_id, confirmation_code, check_in, check_out, status, balance_cents, created_at",
+      "id, guest_id, room_id, confirmation_code, check_in, check_out, status, payment_status, balance_cents, created_at",
     )
     .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false })
@@ -371,6 +372,7 @@ export async function fetchReservationsWithGuests(
       check_in: r.check_in,
       check_out: r.check_out,
       status: r.status,
+      payment_status: r.payment_status ?? null,
       balance_cents: typeof bal === "bigint" ? Number(bal) : bal ?? 0,
       created_at: r.created_at ?? "",
       guest_name: g?.name ?? "—",
@@ -1042,7 +1044,7 @@ export async function fetchShiftsUpcoming(tenantId: string, limit = 80) {
 export async function fetchReservationStats(tenantId: string) {
   const supabase = await getSupabaseHrrmRead();
   const today = localDateIso();
-  const [checkInsToday, departuresToday, nonCanceled] = await Promise.all([
+  const [checkInsToday, departuresToday, activeReservations] = await Promise.all([
     supabase
       .from("reservations")
       .select("id", { count: "exact", head: true })
@@ -1058,17 +1060,17 @@ export async function fetchReservationStats(tenantId: string) {
       .from("reservations")
       .select("id", { count: "exact", head: true })
       .eq("tenant_id", tenantId)
-      .neq("status", "canceled"),
+      .in("status", ["checked_in", "pending"]),
   ]);
 
   return {
     checkInsToday: checkInsToday.count ?? 0,
     departuresToday: departuresToday.count ?? 0,
-    activeBookings: nonCanceled.count ?? 0,
+    activeBookings: activeReservations.count ?? 0,
     error:
       checkInsToday.error?.message ||
       departuresToday.error?.message ||
-      nonCanceled.error?.message ||
+      activeReservations.error?.message ||
       null,
   };
 }

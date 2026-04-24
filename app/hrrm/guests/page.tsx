@@ -20,7 +20,7 @@ export default async function HrrmGuestsPage() {
           Guests
         </h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Directory: phone, registration date, and current stay. Click a row to open details, check out, or recheck in.
+          A clean guest directory with only the core profile information. Open a guest when you need the full detail view.
         </p>
       </div>
 

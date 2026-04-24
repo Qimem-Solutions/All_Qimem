@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CalendarRange, Download, Search } from "lucide-react";
-import { formatDate, formatMoneyCents, formatRelative } from "@/lib/format";
+import { formatBirrCents, formatDate, formatRelative } from "@/lib/format";
 import type { ReservationLedgerRow } from "@/lib/queries/tenant-data";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +25,11 @@ function isCanceledStatus(s: string) {
   return x === "canceled" || x === "cancelled";
 }
 
+function isActiveReservationStatus(s: string) {
+  const x = s.toLowerCase();
+  return x === "checked_in" || x === "pending";
+}
+
 function statusTone(s: string) {
   const x = s.toLowerCase();
   if (x === "confirmed") return "green";
@@ -35,6 +40,18 @@ function statusTone(s: string) {
 
 function formatStatusLabel(s: string) {
   const x = s.toLowerCase().replace(/_/g, " ");
+  return x.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function paymentStatusTone(s: string | null) {
+  const x = (s ?? "").toLowerCase();
+  if (x === "paid") return "green";
+  if (x === "pending") return "orange";
+  return "gray";
+}
+
+function formatPaymentStatusLabel(s: string | null) {
+  const x = (s ?? "unknown").toLowerCase().replace(/_/g, " ");
   return x.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -67,6 +84,7 @@ function buildCsv(rows: ReservationLedgerRow[]): string {
     "Check in",
     "Check out",
     "Status",
+    "Payment Status",
     "Balance (ETB)",
     "Created",
   ];
@@ -82,6 +100,7 @@ function buildCsv(rows: ReservationLedgerRow[]): string {
         r.check_in,
         r.check_out,
         r.status,
+        r.payment_status ?? "",
         String((r.balance_cents ?? 0) / 100),
         r.created_at,
       ]
@@ -118,15 +137,7 @@ export function ReservationsLedgerClient({
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [rangeOpen, setRangeOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(() => allRows[0]?.id ?? null);
-
-  useEffect(() => {
-    setSelectedId((cur) => {
-      if (allRows.length === 0) return null;
-      if (cur && allRows.some((r) => r.id === cur)) return cur;
-      return allRows[0]!.id;
-    });
-  }, [allRows]);
+  const [preferredSelectedId, setPreferredSelectedId] = useState<string | null>(() => allRows[0]?.id ?? null);
 
   const tabCounts = useMemo(() => {
     let active = 0;
@@ -135,7 +146,7 @@ export function ReservationsLedgerClient({
     let canceled = 0;
     for (const r of allRows) {
       if (isCanceledStatus(r.status)) canceled += 1;
-      else active += 1;
+      if (isActiveReservationStatus(r.status)) active += 1;
       if (r.check_in === todayIso) arrivals += 1;
       if (r.check_out === todayIso) departures += 1;
     }
@@ -151,7 +162,7 @@ export function ReservationsLedgerClient({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return allRows.filter((r) => {
-      if (tab === "active" && isCanceledStatus(r.status)) return false;
+      if (tab === "active" && !isActiveReservationStatus(r.status)) return false;
       if (tab === "canceled" && !isCanceledStatus(r.status)) return false;
       if (tab === "arrivals" && r.check_in !== todayIso) return false;
       if (tab === "departures" && r.check_out !== todayIso) return false;
@@ -174,13 +185,11 @@ export function ReservationsLedgerClient({
     });
   }, [allRows, tab, search, dateFrom, dateTo, todayIso]);
 
-  useEffect(() => {
-    if (filtered.length === 0) {
-      setSelectedId(null);
-      return;
-    }
-    setSelectedId((cur) => (cur && filtered.some((r) => r.id === cur) ? cur : filtered[0]!.id));
-  }, [filtered]);
+  const selectedId = useMemo(() => {
+    if (filtered.length === 0) return null;
+    if (preferredSelectedId && filtered.some((r) => r.id === preferredSelectedId)) return preferredSelectedId;
+    return filtered[0]!.id;
+  }, [filtered, preferredSelectedId]);
 
   const selected = useMemo(
     () => (selectedId ? filtered.find((r) => r.id === selectedId) : undefined),
@@ -222,7 +231,7 @@ export function ReservationsLedgerClient({
             <p className="text-xl font-semibold text-zinc-200">{stats.departuresToday}</p>
           </Card>
           <Card className="border-gold/20 px-4 py-3">
-            <p className="text-[10px] uppercase text-zinc-500">Active (non-canceled)</p>
+            <p className="text-[10px] uppercase text-zinc-500">Active (checked-in / pending)</p>
             <p className="text-xl font-semibold text-gold">{stats.activeBookings}</p>
           </Card>
         </div>
@@ -362,6 +371,7 @@ export function ReservationsLedgerClient({
                     <th className="pb-3 pr-2">Room</th>
                     <th className="pb-3 pr-2">Stay</th>
                     <th className="pb-3 pr-2">Status</th>
+                    <th className="pb-3 pr-2">Payment</th>
                     <th className="pb-3 text-right">Balance</th>
                   </tr>
                 </thead>
@@ -373,11 +383,11 @@ export function ReservationsLedgerClient({
                         key={row.id}
                         role="button"
                         tabIndex={0}
-                        onClick={() => setSelectedId(row.id)}
+                        onClick={() => setPreferredSelectedId(row.id)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            setSelectedId(row.id);
+                            setPreferredSelectedId(row.id);
                           }
                         }}
                         className={cn(
@@ -398,7 +408,12 @@ export function ReservationsLedgerClient({
                         <td className="py-3 pr-2">
                           <Badge tone={statusTone(row.status)}>{formatStatusLabel(row.status)}</Badge>
                         </td>
-                        <td className="py-3 text-right font-medium text-gold">{formatMoneyCents(row.balance_cents)}</td>
+                        <td className="py-3 pr-2">
+                          <Badge tone={paymentStatusTone(row.payment_status)}>
+                            {formatPaymentStatusLabel(row.payment_status)}
+                          </Badge>
+                        </td>
+                        <td className="py-3 text-right font-medium text-gold">{formatBirrCents(row.balance_cents)}</td>
                       </tr>
                     );
                   })}
@@ -453,8 +468,14 @@ export function ReservationsLedgerClient({
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] font-semibold uppercase text-zinc-500">Balance</p>
-                    <p className="text-lg font-semibold text-gold">{formatMoneyCents(selected.balance_cents)}</p>
+                    <p className="text-lg font-semibold text-gold">{formatBirrCents(selected.balance_cents)}</p>
                   </div>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase text-zinc-500">Payment status</p>
+                  <Badge tone={paymentStatusTone(selected.payment_status)}>
+                    {formatPaymentStatusLabel(selected.payment_status)}
+                  </Badge>
                 </div>
                 <div>
                   <p className="text-[10px] font-semibold uppercase text-zinc-500">Reference</p>

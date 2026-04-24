@@ -2,19 +2,33 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { searchGuestsHrrmAction } from "@/lib/actions/hrrm-availability";
-import { registerGuestAtFrontDeskAction } from "@/lib/actions/hrrm-guests";
-import { formatDate } from "@/lib/format";
+import { getFrontDeskAvailableRoomsAction, registerGuestAtFrontDeskAction } from "@/lib/actions/hrrm-guests";
+import { formatBirrCents, formatDate } from "@/lib/format";
+import type { GuestDirectoryRow } from "@/lib/hrrm-guest-directory";
+import { nightsBetween } from "@/lib/hrrm-pricing";
 import { GuestDetailsDialog } from "@/components/hrrm/guest-details-dialog";
-import { ChevronRight, Search, UserPlus } from "lucide-react";
+import { Search, UserPlus } from "lucide-react";
 
 type GuestHit = { id: string; full_name: string; phone: string | null };
 
-type RoomOption = { id: string; room_number: string; room_type_name: string | null };
+type RoomOption = {
+  id: string;
+  room_number: string;
+  room_type_name: string | null;
+  nightlyCents: number;
+  totalCents: number;
+};
+
+function roomOptionLabel(room: RoomOption) {
+  const parts = [room.room_number];
+  if (room.room_type_name) parts.push(room.room_type_name);
+  if (room.nightlyCents > 0) parts.push(formatBirrCents(room.nightlyCents));
+  return parts.join(" · ");
+}
 
 export function FrontDeskPageClient({
   canManage,
@@ -35,16 +49,22 @@ export function FrontDeskPageClient({
   const [searchLoading, setSearchLoading] = useState(false);
   const t = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRequestId = useRef(0);
+  const [existingGuestId, setExistingGuestId] = useState<string | null>(null);
 
   const [regName, setRegName] = useState("");
   const [phone, setPhone] = useState("");
   const [checkIn, setCheckIn] = useState(defaultCheckIn);
   const [checkOut, setCheckOut] = useState(defaultCheckOut);
+  const [roomOptions, setRoomOptions] = useState(rooms);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+  const [roomsErr, setRoomsErr] = useState<string | null>(null);
   const [roomId, setRoomId] = useState("");
   const [age, setAge] = useState("");
   const [party, setParty] = useState("1");
   const [nationalId, setNationalId] = useState("");
   const [paymentDollars, setPaymentDollars] = useState("");
+  const [reservationStatus, setReservationStatus] = useState("pending");
+  const [paymentStatus, setPaymentStatus] = useState("pending");
   const [payMethod, setPayMethod] = useState("cash");
   const [idFile, setIdFile] = useState<File | null>(null);
   const [formErr, setFormErr] = useState<string | null>(null);
@@ -52,6 +72,30 @@ export function FrontDeskPageClient({
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<GuestHit | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+
+  const applyGuestToForm = useCallback((guest: GuestDirectoryRow) => {
+    setExistingGuestId(guest.id);
+    setRegName(guest.full_name);
+    setPhone(guest.phone ?? "");
+    setAge(guest.age != null ? String(guest.age) : "");
+    setParty(guest.party_size != null ? String(guest.party_size) : "1");
+    setNationalId(guest.national_id_number ?? "");
+    setPaymentDollars(
+      guest.registration_payment_cents != null ? (guest.registration_payment_cents / 100).toFixed(2) : "",
+    );
+    setPayMethod(guest.payment_method ?? "cash");
+    setFormErr(null);
+    setFormNotice("Returning guest loaded. Adjust the details if needed, then reserve again on the same profile.");
+  }, []);
+
+  const clearExistingGuest = useCallback(() => {
+    setExistingGuestId(null);
+    setFormNotice(null);
+  }, []);
+
+  useEffect(() => {
+    setRoomOptions(rooms);
+  }, [rooms]);
 
   useEffect(() => {
     const term = q.trim();
@@ -87,6 +131,61 @@ export function FrontDeskPageClient({
     };
   }, [q]);
 
+  useEffect(() => {
+    if (!canManage) {
+      setRoomsErr(null);
+      setRoomsLoading(false);
+      return;
+    }
+
+    const validRange = Boolean(checkIn && checkOut && checkIn < checkOut);
+    if (!validRange) {
+      setRoomOptions([]);
+      setRoomsErr(checkIn && checkOut ? "Check-out must be after check-in." : null);
+      setRoomsLoading(false);
+      return;
+    }
+
+    let active = true;
+    setRoomsLoading(true);
+    setRoomsErr(null);
+
+    void (async () => {
+      const result = await getFrontDeskAvailableRoomsAction(checkIn, checkOut);
+      if (!active) return;
+      setRoomsLoading(false);
+      if (!result.ok) {
+        setRoomOptions([]);
+        setRoomsErr(result.error);
+        return;
+      }
+      setRoomOptions(result.rows);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [canManage, checkIn, checkOut]);
+
+  useEffect(() => {
+    if (!roomId) {
+      setPaymentDollars("");
+      return;
+    }
+    if (!roomOptions.some((room) => room.id === roomId)) {
+      setRoomId("");
+      setPaymentDollars("");
+    }
+  }, [roomId, roomOptions]);
+
+  const selectedRoom = roomOptions.find((room) => room.id === roomId) ?? null;
+  const stayNights = checkIn && checkOut ? nightsBetween(checkIn, checkOut) : 0;
+
+  useEffect(() => {
+    if (!selectedRoom) return;
+    setPaymentDollars((selectedRoom.totalCents / 100).toFixed(2));
+  }, [selectedRoom, checkIn, checkOut]);
+
   const onRegister = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -95,6 +194,7 @@ export function FrontDeskPageClient({
       setFormNotice(null);
       setSaving(true);
       const fd = new FormData();
+      if (existingGuestId) fd.set("guest_id", existingGuestId);
       fd.set("full_name", regName);
       fd.set("phone", phone);
       fd.set("check_in", checkIn);
@@ -104,6 +204,8 @@ export function FrontDeskPageClient({
       fd.set("party_size", party);
       fd.set("national_id_number", nationalId);
       fd.set("payment_dollars", paymentDollars);
+      fd.set("reservation_status", reservationStatus);
+      fd.set("payment_status", paymentStatus);
       fd.set("payment_method", payMethod);
       if (idFile) fd.set("national_id_image", idFile);
       const r = await registerGuestAtFrontDeskAction(fd);
@@ -125,6 +227,7 @@ export function FrontDeskPageClient({
       }
       setRegName("");
       setPhone("");
+      setExistingGuestId(null);
       setCheckIn(defaultCheckIn);
       setCheckOut(defaultCheckOut);
       setRoomId("");
@@ -132,6 +235,8 @@ export function FrontDeskPageClient({
       setParty("1");
       setNationalId("");
       setPaymentDollars("");
+      setReservationStatus("pending");
+      setPaymentStatus("pending");
       setIdFile(null);
       setFormErr(null);
       router.refresh();
@@ -143,10 +248,13 @@ export function FrontDeskPageClient({
       checkOut,
       defaultCheckIn,
       defaultCheckOut,
+      existingGuestId,
       idFile,
       nationalId,
       party,
       payMethod,
+      reservationStatus,
+      paymentStatus,
       paymentDollars,
       phone,
       regName,
@@ -178,6 +286,16 @@ export function FrontDeskPageClient({
           <CardContent>
             {formErr ? <p className="mb-3 text-sm text-red-400">{formErr}</p> : null}
             {formNotice ? <p className="mb-3 text-sm text-amber-200/90">{formNotice}</p> : null}
+            {existingGuestId ? (
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-gold/30 bg-gold/10 px-3 py-2 text-sm">
+                <p className="text-zinc-200">
+                  Editing existing guest <span className="font-mono text-xs text-zinc-400">{existingGuestId}</span>
+                </p>
+                <Button type="button" variant="ghost" size="sm" onClick={clearExistingGuest} disabled={saving}>
+                  New guest instead
+                </Button>
+              </div>
+            ) : null}
             <form onSubmit={onRegister} className="space-y-3">
               <div>
                 <span className="text-xs text-zinc-400">Full name</span>
@@ -213,16 +331,28 @@ export function FrontDeskPageClient({
                       className="mt-1 flex h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
                       value={roomId}
                       onChange={(e) => setRoomId(e.target.value)}
-                      disabled={!canManage || rooms.length === 0}
+                      disabled={!canManage || roomOptions.length === 0 || roomsLoading || Boolean(roomsErr)}
                     >
                       <option value="">— No room (profile only) —</option>
-                      {rooms.map((r) => (
+                      {roomOptions.map((r) => (
                         <option key={r.id} value={r.id}>
-                          {r.room_number}
-                          {r.room_type_name ? ` · ${r.room_type_name}` : ""}
+                          {roomOptionLabel(r)}
                         </option>
                       ))}
                     </select>
+                    {roomsErr ? <p className="mt-1 text-xs text-red-400">{roomsErr}</p> : null}
+                    {!roomsErr && roomsLoading ? <p className="mt-1 text-xs text-zinc-500">Checking room availability…</p> : null}
+                    {!roomsErr && !roomsLoading && checkIn < checkOut ? (
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {roomOptions.length} room{roomOptions.length === 1 ? "" : "s"} available for {stayNights} night
+                        {stayNights === 1 ? "" : "s"}.
+                      </p>
+                    ) : null}
+                    {selectedRoom ? (
+                      <div className="mt-2 rounded-md border border-border/60 bg-surface/60 px-3 py-2 text-xs text-zinc-400">
+                        <span className="text-zinc-300">Selected room price:</span> {formatBirrCents(selectedRoom.nightlyCents)} per night
+                      </div>
+                    ) : null}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -306,6 +436,36 @@ export function FrontDeskPageClient({
                     onChange={(e) => setPaymentDollars(e.target.value)}
                     disabled={!canManage}
                   />
+                  {selectedRoom ? (
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Auto-filled only here from room price: {formatBirrCents(selectedRoom.nightlyCents)} × {stayNights} night
+                      {stayNights === 1 ? "" : "s"} = {formatBirrCents(selectedRoom.totalCents)}.
+                    </p>
+                  ) : null}
+                </div>
+                <div>
+                  <span className="text-xs text-zinc-400">Reservation status</span>
+                  <select
+                    className="mt-1 flex h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
+                    value={reservationStatus}
+                    onChange={(e) => setReservationStatus(e.target.value)}
+                    disabled={!canManage || !roomId}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="checked_in">Checked in</option>
+                  </select>
+                </div>
+                <div>
+                  <span className="text-xs text-zinc-400">Payment status</span>
+                  <select
+                    className="mt-1 flex h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
+                    value={paymentStatus}
+                    onChange={(e) => setPaymentStatus(e.target.value)}
+                    disabled={!canManage}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="paid">Paid</option>
+                  </select>
                 </div>
                 <div>
                   <span className="text-xs text-zinc-400">Method</span>
@@ -341,9 +501,9 @@ export function FrontDeskPageClient({
             <CardTitle className="flex items-center gap-2">
               <Search className="h-4 w-4" /> Find guest
             </CardTitle>
-            <CardDescription>Search by name, phone, or guest ID.</CardDescription>
+            <CardDescription>Search returning guests, open details, then continue from there.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-3">
             <div className="relative z-0">
               <Input
                 placeholder="Type at least 2 characters…"
@@ -387,6 +547,7 @@ export function FrontDeskPageClient({
                           setSearchOpen(false);
                         }}
                         role="option"
+                        aria-selected={selected?.id === g.id}
                       >
                         {g.full_name}
                         {g.phone ? <span className="ml-1 text-zinc-500">({g.phone})</span> : null}
@@ -397,18 +558,20 @@ export function FrontDeskPageClient({
               ) : null}
             </div>
             {selected ? (
-              <div className="flex flex-wrap items-center gap-2 pt-2">
-                <Button type="button" variant="secondary" onClick={() => setDetailOpen(true)} className="h-9">
-                  View details
-                </Button>
-                <Link
-                  href="/hrrm/reservations"
-                  className="inline-flex h-9 items-center justify-center gap-1 rounded-md bg-gold px-4 text-sm font-medium text-gold-foreground"
-                >
-                  New booking in ledger
-                  <ChevronRight className="h-4 w-4" />
-                </Link>
-                <p className="w-full text-xs text-zinc-500">Details shows stay, check out, or recheck in. Use the ledger for new bookings.</p>
+              <div className="rounded-xl border border-border/70 bg-foreground/[0.03] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Selected guest</p>
+                    <p className="mt-1 truncate text-sm font-medium text-foreground">{selected.full_name}</p>
+                    <p className="font-mono text-[10px] text-zinc-500">{selected.id}</p>
+                  </div>
+                  <Button type="button" variant="secondary" onClick={() => setDetailOpen(true)} className="h-9 shrink-0">
+                    View details
+                  </Button>
+                </div>
+                <p className="mt-3 text-xs text-zinc-500">
+                  Use details to edit an active reservation, or refill the front desk form when this guest is returning.
+                </p>
               </div>
             ) : null}
           </CardContent>
@@ -422,6 +585,10 @@ export function FrontDeskPageClient({
         loadGuestId={detailOpen && selected ? selected.id : null}
         canManage={canManage}
         columns="full"
+        onUseForReservation={(guest) => {
+          applyGuestToForm(guest);
+          setDetailOpen(false);
+        }}
       />
     </div>
   );

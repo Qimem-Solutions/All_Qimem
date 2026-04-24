@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getUserContext } from "@/lib/queries/context";
 import { getServiceAccessForLayout } from "@/lib/auth/service-access";
-import { searchGuestsForTenant, findAvailableRoomForStay, fetchAvailabilityMatrix } from "@/lib/queries/hrrm-availability";
-import { quoteFromNightlyCents, nightsBetween } from "@/lib/hrrm-pricing";
+import { searchGuestsForTenant, findAvailableRoomForStay } from "@/lib/queries/hrrm-availability";
+import { nightsBetween } from "@/lib/hrrm-pricing";
 
 type Ok = { ok: true } | { ok: false; error: string };
 
@@ -16,6 +16,25 @@ type HrrmViewGate =
 type HrrmManageGate = HrrmViewGate;
 
 const PATH = "/hrrm/availability" as const;
+
+async function syncRoomStatusForReservation(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  roomId: string,
+  reservationStatus: string,
+) {
+  const status = reservationStatus.toLowerCase();
+  let operationalStatus: string | null = null;
+  if (["pending", "confirmed", "checked_in"].includes(status)) operationalStatus = "occupied";
+  else if (["checked_out", "completed", "departed", "canceled", "cancelled"].includes(status)) operationalStatus = "available";
+  if (!operationalStatus) return;
+
+  await supabase
+    .from("rooms")
+    .update({ operational_status: operationalStatus })
+    .eq("id", roomId)
+    .eq("tenant_id", tenantId);
+}
 
 function revalidateHrrm() {
   revalidatePath(PATH);
@@ -97,10 +116,15 @@ export async function createQuickReservationAction(input: CreateResInput): Promi
     return { ok: false, error: roomErr ?? "No room available for those dates." };
   }
 
-  const priceSlice = await fetchAvailabilityMatrix(g.tenantId, checkIn, 1);
-  const row = priceSlice.rows.find((r) => r.roomTypeId === input.roomTypeId);
-  const nightly = row?.cells[0]?.priceCents ?? 0;
-  const { total } = quoteFromNightlyCents(nightly, nights);
+  const { data: roomTypeRow, error: typeErr } = await g.supabase
+    .from("room_types")
+    .select("price")
+    .eq("id", input.roomTypeId)
+    .eq("tenant_id", g.tenantId)
+    .maybeSingle();
+  if (typeErr) return { ok: false, error: typeErr.message };
+  const nightly = roomTypeRow?.price == null ? 0 : Math.round(Number(roomTypeRow.price) * 100);
+  const total = nightly * nights;
 
   const status = input.mode === "hold" ? "pending" : "confirmed";
   const { error: insErr } = await g.supabase.from("reservations").insert({
@@ -111,9 +135,11 @@ export async function createQuickReservationAction(input: CreateResInput): Promi
     check_out: checkOut,
     status,
     balance_cents: total,
+    payment_status: "pending",
     confirmation_code: randomConfirmationCode(),
   });
   if (insErr) return { ok: false, error: insErr.message };
+  await syncRoomStatusForReservation(g.supabase, g.tenantId, roomId, status);
 
   revalidateHrrm();
   return { ok: true };

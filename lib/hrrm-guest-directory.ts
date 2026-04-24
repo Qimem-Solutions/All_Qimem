@@ -14,6 +14,7 @@ export type GuestStaySummary = {
   /** Human-friendly stay phase for the “best” reservation shown. */
   label: string;
   rawStatus: string | null;
+  paymentStatus: string | null;
 };
 
 export type GuestDirectoryRow = {
@@ -23,6 +24,7 @@ export type GuestDirectoryRow = {
   created_at: string | null;
   age: number | null;
   party_size: number | null;
+  national_id_number: string | null;
   registration_payment_cents: number | null;
   payment_method: string | null;
   /** The stay we show for this row (in-house preferred, else upcoming, else most recent past). */
