@@ -480,7 +480,7 @@ export function GuestDetailsDialog({ open, onClose, initialRow, loadGuestId, can
                   variant="secondary"
                   className="w-full"
                   onClick={() => {
-                    onUseForReservation(toShow);
+                    onUseForReservation?.(toShow);
                     handleClose();
                   }}
                 >
