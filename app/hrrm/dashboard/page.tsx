@@ -12,6 +12,7 @@ import {
 } from "@/lib/queries/tenant-data";
 import { fetchAvailabilityMatrix, isFinishedReservation } from "@/lib/queries/hrrm-availability";
 import { formatBirrCents, formatDate, localDateIso } from "@/lib/format";
+import { syncOvernightOccupiedRoomsToDirty } from "@/lib/queries/hrrm-housekeeping";
 
 function roomCellClass(hk: string | null, op: string | null) {
   const o = (op ?? "").toLowerCase();
@@ -56,6 +57,8 @@ export default async function HrrmDashboardPage() {
   }
 
   const todayIso = localDateIso();
+
+  await syncOvernightOccupiedRoomsToDirty(tenantId);
 
   const [counts, resStats, roomsRes, resList, housekeepingAgg, availability] = await Promise.all([
     fetchHrrmDashboardCounts(tenantId),

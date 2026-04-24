@@ -3,6 +3,7 @@ import { getUserContext } from "@/lib/queries/context";
 import { getServiceAccessForLayout } from "@/lib/auth/service-access";
 import { fetchRoomHousekeepingAggregate, fetchRooms } from "@/lib/queries/tenant-data";
 import { HousekeepingPageClient } from "@/components/hrrm/housekeeping-page-client";
+import { syncOvernightOccupiedRoomsToDirty } from "@/lib/queries/hrrm-housekeeping";
 
 export default async function HousekeepingPage() {
   const ctx = await getUserContext();
@@ -11,6 +12,8 @@ export default async function HousekeepingPage() {
   const tenantId = ctx.tenantId;
   const access = await getServiceAccessForLayout(ctx, "hrrm");
   const canManage = access === "manage";
+
+  await syncOvernightOccupiedRoomsToDirty(tenantId);
 
   const [{ rows, error }, agg] = await Promise.all([
     fetchRooms(tenantId),
