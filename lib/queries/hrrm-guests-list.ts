@@ -2,15 +2,24 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { localDateIso } from "@/lib/format";
 import { nightsBetween } from "@/lib/hrrm-pricing";
-import { isCanceledReservation } from "@/lib/queries/hrrm-availability";
+import { isCanceledReservation, isFinishedReservation } from "@/lib/queries/hrrm-availability";
 import type { GuestDirectoryRow, GuestStaySummary } from "@/lib/hrrm-guest-directory";
 
 export type { GuestDirectoryRow, GuestStaySummary } from "@/lib/hrrm-guest-directory";
 export { formatGuestRowPayment } from "@/lib/hrrm-guest-directory";
 
 const FULL_SELECT =
-  "id, full_name, phone, created_at, age, party_size, registration_payment_cents, payment_method";
+  "id, full_name, phone, created_at, age, party_size, national_id_number, registration_payment_cents, payment_method";
 const MIN_SELECT = "id, full_name, phone, loyalty_tier, created_at";
+
+function isCheckedInStatus(status: string | null | undefined) {
+  return (status ?? "").toLowerCase() === "checked_in";
+}
+
+function isLiveReservationStatus(status: string | null | undefined) {
+  const normalized = (status ?? "").toLowerCase();
+  return normalized === "checked_in" || normalized === "confirmed" || normalized === "pending";
+}
 
 function pickStayForGuest(
   reservations: {
@@ -19,29 +28,38 @@ function pickStayForGuest(
     check_in: string;
     check_out: string;
     status: string | null;
+    payment_status: string | null;
   }[],
   roomMap: Map<string, string>,
   today: string,
 ): GuestStaySummary | null {
-  const list = reservations.filter((r) => !isCanceledReservation(r.status));
-  if (list.length === 0) return null;
+  if (reservations.length === 0) return null;
 
-  const inHouse = list.find((r) => r.check_in <= today && today < r.check_out);
-  const chosen = inHouse
-    ? inHouse
-    : (() => {
-        const upcoming = list
-          .filter((r) => r.check_in > today)
-          .sort((a, b) => a.check_in.localeCompare(b.check_in));
-        if (upcoming[0]) return upcoming[0];
-        return [...list].sort((a, b) => b.check_out.localeCompare(a.check_out))[0] ?? null;
-      })();
+  const unfinishedList = reservations.filter((r) => !isFinishedReservation(r.status));
+  const checkedIn = unfinishedList
+    .filter((r) => isCheckedInStatus(r.status))
+    .sort((a, b) => a.check_in.localeCompare(b.check_in))[0];
+  const inHouse = unfinishedList
+    .filter((r) => r.check_in <= today && today < r.check_out)
+    .sort((a, b) => a.check_in.localeCompare(b.check_in))[0];
+  const liveReservation = unfinishedList
+    .filter((r) => isLiveReservationStatus(r.status))
+    .sort((a, b) => a.check_in.localeCompare(b.check_in))[0];
+  const fallbackReservation = (() => {
+    const upcoming = unfinishedList
+      .filter((r) => r.check_in > today)
+      .sort((a, b) => a.check_in.localeCompare(b.check_in));
+    if (upcoming[0]) return upcoming[0];
+    return [...reservations].sort((a, b) => b.check_out.localeCompare(a.check_out))[0] ?? null;
+  })();
+  const chosen = checkedIn ?? inHouse ?? liveReservation ?? fallbackReservation;
   if (!chosen) return null;
 
   const nights = Math.max(0, nightsBetween(chosen.check_in, chosen.check_out));
   let label = "—";
-  if (inHouse) label = "In house";
+  if (isCheckedInStatus(chosen.status) || (inHouse && chosen.id === inHouse.id)) label = "In house";
   else if (chosen.check_in > today) label = "Upcoming";
+  else if (isCanceledReservation(chosen.status)) label = "Canceled";
   else if (chosen.check_out <= today) label = "Checked out";
 
   return {
@@ -53,10 +71,11 @@ function pickStayForGuest(
     nights: nights > 0 ? nights : null,
     label,
     rawStatus: chosen.status,
+    paymentStatus: chosen.payment_status,
   };
 }
 
-const RES_SELECT = "id, guest_id, room_id, check_in, check_out, status";
+const RES_SELECT = "id, guest_id, room_id, check_in, check_out, status, payment_status";
 
 /**
  * All guests for the property (newest first). Service role is used so front-desk staff
@@ -138,6 +157,7 @@ async function attachStays(
     check_in: string;
     check_out: string;
     status: string | null;
+    payment_status: string | null;
   }[];
 
   const roomIds = [...new Set(resList.map((x) => x.room_id).filter(Boolean))] as string[];
@@ -171,6 +191,7 @@ function mapFull(g: Record<string, unknown>): GuestDirectoryRow {
     created_at: (g.created_at as string) ?? null,
     age: g.age != null ? Number(g.age) : null,
     party_size: g.party_size != null ? Number(g.party_size) : null,
+    national_id_number: (g.national_id_number as string) ?? null,
     registration_payment_cents: pay,
     payment_method: (g.payment_method as string) ?? null,
     stay: null,
@@ -193,6 +214,7 @@ function mapBasic(g: BasicGuestRow): GuestDirectoryRow {
     created_at: g.created_at,
     age: null,
     party_size: null,
+    national_id_number: null,
     registration_payment_cents: null,
     payment_method: null,
     stay: null,

@@ -5,9 +5,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatMoneyCents } from "@/lib/format";
+import { formatBirrCents } from "@/lib/format";
 import type { AvailabilityMatrix, AvailabilityRow } from "@/lib/queries/hrrm-availability";
-import { addDaysToIso, nightsBetween, quoteFromNightlyCents } from "@/lib/hrrm-pricing";
+import { addDaysToIso, nightsBetween } from "@/lib/hrrm-pricing";
 import { searchGuestsHrrmAction, createQuickReservationAction } from "@/lib/actions/hrrm-availability";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, Filter } from "lucide-react";
@@ -94,12 +94,9 @@ export function AvailabilityPageClient({
     [matrix.rows, selectedTypeId],
   );
 
-  const nightlyCents = selectedRow?.cells[0]?.priceCents ?? 0;
+  const nightlyCents = selectedRow?.nightlyCents ?? 0;
   const nights = useMemo(() => nightsBetween(checkIn, checkOut), [checkIn, checkOut]);
-  const quote = useMemo(
-    () => (nights > 0 && nightlyCents > 0 ? quoteFromNightlyCents(nightlyCents, nights) : null),
-    [nightlyCents, nights],
-  );
+  const totalCents = useMemo(() => (nights > 0 && nightlyCents > 0 ? nightlyCents * nights : 0), [nightlyCents, nights]);
 
   const adults = Math.min(2, selectedRow?.capacity ?? 2);
 
@@ -263,7 +260,7 @@ export function AvailabilityPageClient({
         <Card className="overflow-x-auto xl:col-span-2">
           <CardHeader>
             <CardTitle>Inventory grid</CardTitle>
-            <CardDescription>Green = rooms left · Red = sold out · price is nightly (rate plan).</CardDescription>
+            <CardDescription>Green = rooms left · Red = sold out · price is nightly from the room type.</CardDescription>
           </CardHeader>
           <CardContent>
             {visibleRows.length === 0 ? (
@@ -307,7 +304,7 @@ export function AvailabilityPageClient({
                           >
                             {cell.priceCents > 0 ? (
                               <span>
-                                {formatMoneyCents(cell.priceCents)} · {cell.available}
+                                {formatBirrCents(cell.priceCents)} · {cell.available}
                               </span>
                             ) : (
                               <span className="text-zinc-500">— · {cell.available}</span>
@@ -391,27 +388,23 @@ export function AvailabilityPageClient({
                 (capacity cap)
               </p>
             </div>
-            {quote && selectedRow && nightlyCents > 0 ? (
+            {selectedRow && totalCents > 0 ? (
               <div className="space-y-1 text-sm text-zinc-400">
                 <div className="flex justify-between">
-                  <span>Nightly (avg)</span>
-                  <span>{formatMoneyCents(nightlyCents)}</span>
+                  <span>Nightly price</span>
+                  <span>{formatBirrCents(nightlyCents)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Resort fees</span>
-                  <span>{formatMoneyCents(quote.resort)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Taxes (est.)</span>
-                  <span>{formatMoneyCents(quote.tax)}</span>
+                  <span>Nights</span>
+                  <span>{nights}</span>
                 </div>
                 <div className="flex justify-between border-t border-border pt-2 text-lg font-semibold text-gold">
-                  <span>Total (est.)</span>
-                  <span>{formatMoneyCents(quote.total)}</span>
+                  <span>Total</span>
+                  <span>{formatBirrCents(totalCents)}</span>
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-zinc-500">Choose a type with a rate plan and a valid date range to see pricing.</p>
+              <p className="text-xs text-zinc-500">Choose a room type with a price and a valid date range to see the total.</p>
             )}
             <div className="flex gap-2">
               <Button
@@ -469,25 +462,25 @@ export function AvailabilityPageClient({
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Average daily rate (hint)</CardTitle>
-            <CardDescription>Weighted by room count per type and active rate plans.</CardDescription>
+            <CardDescription>Weighted by room count per type and current room type pricing.</CardDescription>
           </CardHeader>
           <CardContent>
             {matrix.adrCents != null && matrix.adrCents > 0 ? (
               <>
-                <p className="text-3xl font-semibold text-white">{formatMoneyCents(matrix.adrCents)}</p>
+                <p className="text-3xl font-semibold text-white">{formatBirrCents(matrix.adrCents)}</p>
                 <div className="mt-4 space-y-2 text-sm text-zinc-400">
                   {matrix.rows.slice(0, 6).map((r) => (
                     <div key={r.roomTypeId} className="flex justify-between">
                       <span className="truncate pr-2">{r.roomTypeName}</span>
                       <span>
-                        {r.cells[0]?.priceCents ? formatMoneyCents(r.cells[0].priceCents) : "—"}
+                        {r.nightlyCents ? formatBirrCents(r.nightlyCents) : "—"}
                       </span>
                     </div>
                   ))}
                 </div>
               </>
             ) : (
-              <p className="text-sm text-zinc-500">Add rate plans in Rates &amp; pricing (and optionally link a plan to each room type).</p>
+              <p className="text-sm text-zinc-500">Add room type prices in Rates &amp; pricing to see ADR here.</p>
             )}
           </CardContent>
         </Card>

@@ -50,6 +50,16 @@ export function formatMoneyCents(cents: number | null | undefined): string {
   }).format(cents / 100);
 }
 
+export function formatBirrCents(cents: number | null | undefined): string {
+  if (cents == null) return "—";
+  const amount = cents / 100;
+  const whole = Number.isInteger(amount);
+  return `${new Intl.NumberFormat("en-ET", {
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(amount)} birr`;
+}
+
 export function tenantDisplayId(uuid: string): string {
   return `T-${uuid.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 }

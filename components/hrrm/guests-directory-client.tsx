@@ -112,7 +112,7 @@ export function GuestsDirectoryClient({ rows, columns, canManage }: Props) {
         open={dialogOpen}
         onClose={closeDialog}
         initialRow={dialogRow}
-        loadGuestId={null}
+        loadGuestId={dialogOpen && dialogRow ? dialogRow.id : null}
         canManage={canManage}
         columns={columns}
       />
