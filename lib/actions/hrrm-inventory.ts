@@ -33,7 +33,17 @@ function revalidate() {
 
 // ——— Room types ———
 
-export async function createRoomTypeAction(input: { name: string; capacity: number | null }): Promise<Ok> {
+function normalizeRoomTypePrice(price: number | null) {
+  if (price == null) return null;
+  if (!Number.isFinite(price) || price < 0) return Number.NaN;
+  return Number(price.toFixed(2));
+}
+
+export async function createRoomTypeAction(input: {
+  name: string;
+  capacity: number | null;
+  price: number | null;
+}): Promise<Ok> {
   const g = await requireHrrmManage();
   if (!g.ok) return g;
   const name = input.name.trim();
@@ -42,10 +52,15 @@ export async function createRoomTypeAction(input: { name: string; capacity: numb
   if (cap != null && (cap < 1 || cap > 20)) {
     return { ok: false, error: "Capacity should be between 1 and 20, or left empty for default." };
   }
+  const price = normalizeRoomTypePrice(input.price);
+  if (Number.isNaN(price)) {
+    return { ok: false, error: "Price must be a valid number greater than or equal to 0." };
+  }
   const { error } = await g.supabase.from("room_types").insert({
     tenant_id: g.tenantId,
     name,
     capacity: cap ?? 2,
+    price,
   });
   if (error) {
     if (error.message.includes("unique") || error.message.includes("duplicate")) {
@@ -61,6 +76,7 @@ export async function updateRoomTypeAction(input: {
   id: string;
   name: string;
   capacity: number | null;
+  price: number | null;
 }): Promise<Ok> {
   const g = await requireHrrmManage();
   if (!g.ok) return g;
@@ -69,6 +85,10 @@ export async function updateRoomTypeAction(input: {
   const cap = input.capacity;
   if (cap != null && (cap < 1 || cap > 20)) {
     return { ok: false, error: "Capacity should be between 1 and 20." };
+  }
+  const price = normalizeRoomTypePrice(input.price);
+  if (Number.isNaN(price)) {
+    return { ok: false, error: "Price must be a valid number greater than or equal to 0." };
   }
   const { data: row, error: typeLookupErr } = await g.supabase
     .from("room_types")
@@ -80,7 +100,7 @@ export async function updateRoomTypeAction(input: {
   }
   const { error } = await g.supabase
     .from("room_types")
-    .update({ name, capacity: cap ?? 2 })
+    .update({ name, capacity: cap ?? 2, price })
     .eq("id", input.id)
     .eq("tenant_id", g.tenantId);
   if (error) return { ok: false, error: error.message };
@@ -115,7 +135,7 @@ export async function deleteRoomTypeAction(id: string): Promise<Ok> {
 
 // ——— Rooms ———
 
-const HK = ["clean", "dirty", "inspected"] as const;
+const HK = ["clean", "dirty"] as const;
 const OP = [
   "available",
   "occupied",

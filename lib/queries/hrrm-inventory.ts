@@ -4,6 +4,7 @@ export type RoomTypeRow = {
   id: string;
   name: string;
   capacity: number | null;
+  price: number | null;
   tenant_id: string;
 };
 
@@ -26,11 +27,22 @@ export async function fetchRoomTypes(tenantId: string): Promise<{
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("room_types")
-    .select("id, name, capacity, tenant_id")
+    .select("id, name, capacity, price, tenant_id")
     .eq("tenant_id", tenantId)
     .order("name", { ascending: true });
   if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as RoomTypeRow[], error: null };
+  return {
+    rows: (data ?? []).map((row) => ({
+      ...row,
+      price:
+        row.price == null
+          ? null
+          : typeof row.price === "number"
+            ? row.price
+            : Number.parseFloat(String(row.price)),
+    })) as RoomTypeRow[],
+    error: null,
+  };
 }
 
 /** Rooms with type names for inventory UI. */

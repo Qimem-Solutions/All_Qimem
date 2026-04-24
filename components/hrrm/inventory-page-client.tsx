@@ -1,23 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
+  BedDouble,
+  CheckCircle2,
+  CircleAlert,
   Download,
   Filter,
-  Plus,
-  MoreVertical,
-  Pencil,
-  Trash2,
-  UserX,
   LayoutGrid,
   List,
+  MoreVertical,
+  Pencil,
+  Plus,
+  Sparkles,
+  Trash2,
+  UserX,
+  Wrench,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { formatMoneyCents } from "@/lib/format";
 import { getFloatingMenuStyle } from "@/components/hotel/floating-menu-position";
 import type { RoomInventoryRow, RoomTypeRow } from "@/lib/queries/hrrm-inventory";
 import {
@@ -34,7 +40,6 @@ import {
 const HK_OPTIONS = [
   { value: "clean", label: "Clean" },
   { value: "dirty", label: "Dirty" },
-  { value: "inspected", label: "Inspected" },
 ] as const;
 const OP_OPTIONS = [
   { value: "available", label: "Available" },
@@ -54,6 +59,46 @@ function hkValueForSelect(hk: string | null) {
   const h = (hk ?? "clean").toLowerCase();
   if (HK_OPTIONS.some((o) => o.value === h)) return h;
   return "clean";
+}
+
+function formatRoomTypePrice(price: number | null) {
+  if (price == null) return "—";
+  return formatMoneyCents(Math.round(price * 100));
+}
+
+function RoomStatusStat({
+  label,
+  value,
+  helper,
+  dotClassName,
+  className,
+  icon,
+}: {
+  label: string;
+  value: number;
+  helper: string;
+  dotClassName: string;
+  className: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className={cn("relative overflow-hidden rounded-2xl border px-4 py-4 shadow-sm", className)}>
+      <div className="absolute inset-x-0 top-0 h-px bg-white/30" />
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/10 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-muted/90 backdrop-blur-sm">
+            <span className={cn("h-2 w-2 rounded-full", dotClassName)} />
+            {label}
+          </div>
+          <p className="mt-3 text-3xl font-semibold leading-none text-foreground">{value}</p>
+          <p className="mt-2 text-sm text-muted">{helper}</p>
+        </div>
+        <div className="rounded-xl border border-white/15 bg-white/10 p-2.5 text-foreground/90 shadow-inner backdrop-blur-sm">
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function HousekeepingSelect({
@@ -200,12 +245,14 @@ export function HrrmInventoryPageClient({
   }, [rooms, search, floorQ, buildingQ]);
 
   const hkCounts: Record<string, number> = {};
+  let available = 0;
   let ooo = 0;
   let occ = 0;
   for (const r of rooms) {
     const h = (r.housekeeping_status ?? "unknown").toLowerCase();
     hkCounts[h] = (hkCounts[h] ?? 0) + 1;
     const o = (r.operational_status ?? "").toLowerCase();
+    if (o === "available") available += 1;
     if (o === "out_of_order" || o === "maintenance") ooo += 1;
     if (o === "occupied") occ += 1;
   }
@@ -365,6 +412,7 @@ export function HrrmInventoryPageClient({
             onRefresh={() => router.refresh()}
             statusDotClass={statusDotClass}
             hkCounts={hkCounts}
+            available={available}
             ooo={ooo}
             occ={occ}
           />
@@ -389,6 +437,7 @@ function RoomTypesPanel({
   const [editing, setEditing] = useState<RoomTypeRow | null>(null);
   const [name, setName] = useState("");
   const [cap, setCap] = useState("");
+  const [price, setPrice] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -396,6 +445,7 @@ function RoomTypesPanel({
     setEditing(null);
     setName("");
     setCap("2");
+    setPrice("");
     setErr(null);
     setOpen(true);
   }
@@ -403,6 +453,7 @@ function RoomTypesPanel({
     setEditing(t);
     setName(t.name);
     setCap(t.capacity != null ? String(t.capacity) : "2");
+    setPrice(t.price != null ? String(t.price) : "");
     setErr(null);
     setOpen(true);
   }
@@ -412,14 +463,20 @@ function RoomTypesPanel({
     setErr(null);
     setLoading(true);
     const c = cap.trim() ? Number.parseInt(cap, 10) : 2;
+    const p = price.trim() ? Number.parseFloat(price) : null;
     if (!Number.isFinite(c) || c < 1) {
       setLoading(false);
       setErr("Enter a valid capacity (1–20).");
       return;
     }
+    if (p != null && (!Number.isFinite(p) || p < 0)) {
+      setLoading(false);
+      setErr("Enter a valid room price.");
+      return;
+    }
     const r = editing
-      ? await updateRoomTypeAction({ id: editing.id, name, capacity: c })
-      : await createRoomTypeAction({ name, capacity: c });
+      ? await updateRoomTypeAction({ id: editing.id, name, capacity: c, price: p })
+      : await createRoomTypeAction({ name, capacity: c, price: p });
     setLoading(false);
     if (!r.ok) {
       setErr(r.error);
@@ -457,6 +514,7 @@ function RoomTypesPanel({
           <thead>
             <tr className="border-b border-border text-xs uppercase tracking-wider text-muted">
               <th className="px-4 py-3 font-medium">Name</th>
+              <th className="px-4 py-3 font-medium">Base price</th>
               <th className="px-4 py-3 font-medium">Default capacity</th>
               <th className="w-32 px-4 py-3 text-right font-medium">Actions</th>
             </tr>
@@ -464,7 +522,7 @@ function RoomTypesPanel({
           <tbody>
             {roomTypes.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-4 py-8 text-center text-muted">
+                <td colSpan={4} className="px-4 py-8 text-center text-muted">
                   No room types yet. {canManage ? "Add one, then add rooms in the other tab." : ""}
                 </td>
               </tr>
@@ -472,6 +530,7 @@ function RoomTypesPanel({
               roomTypes.map((t) => (
                 <tr key={t.id} className="border-b border-border/60">
                   <td className="px-4 py-3 font-medium text-foreground">{t.name}</td>
+                  <td className="px-4 py-3 text-muted">{formatRoomTypePrice(t.price)}</td>
                   <td className="px-4 py-3 text-muted">{t.capacity ?? "—"}</td>
                   <td className="px-4 py-3 text-right">
                     {canManage ? (
@@ -521,6 +580,17 @@ function RoomTypesPanel({
                 <Input className="mt-1" value={name} onChange={(e) => setName(e.target.value)} required />
                 <label className="mt-3 block text-xs font-medium text-muted">Default max guests (capacity)</label>
                 <Input className="mt-1" type="number" min={1} max={20} value={cap} onChange={(e) => setCap(e.target.value)} />
+                <label className="mt-3 block text-xs font-medium text-muted">Base price</label>
+                <Input
+                  className="mt-1"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                />
                 <div className="mt-6 flex justify-end gap-2">
                   <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
                     Cancel
@@ -547,6 +617,7 @@ function RoomsPanel({
   onRefresh,
   statusDotClass,
   hkCounts,
+  available,
   ooo,
   occ,
 }: {
@@ -558,13 +629,71 @@ function RoomsPanel({
   onRefresh: () => void;
   statusDotClass: (h: string | null, o: string | null) => string;
   hkCounts: Record<string, number>;
+  available: number;
   ooo: number;
   occ: number;
 }) {
   const [modal, setModal] = useState<"new" | { edit: RoomInventoryRow } | null>(null);
+  const visibleCountLabel = `Showing ${rooms.length} of ${allCount} room${allCount === 1 ? "" : "s"}`;
 
   return (
     <>
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-surface-elevated via-surface to-surface-elevated/90 shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-border/60 px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-5">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">Room Snapshot</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">Operational overview</h2>
+            <p className="mt-1 text-sm text-muted">A quick look at housekeeping and occupancy across visible rooms.</p>
+          </div>
+          <div className="rounded-full border border-border/70 bg-surface-elevated/80 px-3 py-1.5 text-sm text-muted shadow-sm">
+            {visibleCountLabel}
+          </div>
+        </div>
+
+        <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 xl:grid-cols-5">
+          <RoomStatusStat
+            label="Available"
+            value={available}
+            helper="Open for assignment"
+            dotClassName="bg-teal-500"
+            className="border-teal-500/25 bg-gradient-to-br from-teal-500/18 via-teal-500/10 to-surface-elevated"
+            icon={<CheckCircle2 className="h-5 w-5" />}
+          />
+          <RoomStatusStat
+            label="Clean"
+            value={hkCounts.clean ?? 0}
+            helper="Housekeeping complete"
+            dotClassName="bg-emerald-500"
+            className="border-emerald-500/25 bg-gradient-to-br from-emerald-500/18 via-emerald-500/10 to-surface-elevated"
+            icon={<Sparkles className="h-5 w-5" />}
+          />
+          <RoomStatusStat
+            label="Dirty"
+            value={hkCounts.dirty ?? 0}
+            helper="Needs housekeeping"
+            dotClassName="bg-sky-500"
+            className="border-sky-500/25 bg-gradient-to-br from-sky-500/18 via-sky-500/10 to-surface-elevated"
+            icon={<CircleAlert className="h-5 w-5" />}
+          />
+          <RoomStatusStat
+            label="Occupied"
+            value={occ}
+            helper="Currently in use"
+            dotClassName="bg-amber-500"
+            className="border-amber-500/25 bg-gradient-to-br from-amber-500/18 via-amber-500/10 to-surface-elevated"
+            icon={<BedDouble className="h-5 w-5" />}
+          />
+          <RoomStatusStat
+            label="Out of Order / Maintenance"
+            value={ooo}
+            helper="Temporarily unavailable"
+            dotClassName="bg-red-500"
+            className="border-red-500/25 bg-gradient-to-br from-red-500/18 via-red-500/10 to-surface-elevated"
+            icon={<Wrench className="h-5 w-5" />}
+          />
+        </div>
+      </div>
+
       {view === "grid" ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {rooms.map((r) => (
@@ -647,26 +776,6 @@ function RoomsPanel({
         </div>
         </div>
       )}
-
-      <div className="flex flex-wrap items-center justify-between gap-4 text-xs text-muted">
-        <div className="flex flex-wrap gap-4">
-          <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" /> {hkCounts.clean ?? 0} clean
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-blue-500" /> {hkCounts.dirty ?? 0} dirty
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-amber-500" /> {occ} occupied
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-red-500" /> {ooo} out of order / maintenance
-          </span>
-        </div>
-        <span>
-          Showing {rooms.length} of {allCount} room{allCount === 1 ? "" : "s"}
-        </span>
-      </div>
 
       {modal && canManage ? (
         <RoomFormModal
