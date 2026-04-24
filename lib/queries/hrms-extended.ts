@@ -295,3 +295,27 @@ export async function fetchEmployeeOptions(tenantId: string): Promise<{
   if (qErr) return { rows: [], error: qErr.message };
   return { rows: data ?? [], error: null };
 }
+
+export type PayrollEmployeeRow = {
+  id: string;
+  full_name: string;
+  monthly_salary_cents: number | null;
+};
+
+/** Same as options, plus `monthly_salary_cents` for payroll vs expected-amount status. */
+export async function fetchEmployeesForPayroll(tenantId: string): Promise<{
+  rows: PayrollEmployeeRow[];
+  error: string | null;
+}> {
+  const { db, error } = await srOrClient(tenantId);
+  if (error || !db) return { rows: [], error: error ?? "No database client." };
+
+  const { data, error: qErr } = await db
+    .from("employees")
+    .select("id, full_name, monthly_salary_cents")
+    .eq("tenant_id", tenantId)
+    .order("full_name", { ascending: true });
+
+  if (qErr) return { rows: [], error: qErr.message };
+  return { rows: (data ?? []) as PayrollEmployeeRow[], error: null };
+}

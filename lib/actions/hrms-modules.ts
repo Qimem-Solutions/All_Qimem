@@ -5,6 +5,12 @@ import { getUserContext } from "@/lib/queries/context";
 import { canManageHrStaff } from "@/lib/auth/can-manage-hr-staff";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import {
+  fetchPayrollLinesForRun,
+  fetchPayrollRuns,
+  type PayrollLineRow,
+  type PayrollRunRow,
+} from "@/lib/queries/hrms-extended";
 
 const HR_PATHS = [
   "/hrms/time",
@@ -403,30 +409,131 @@ export async function submitRecruitmentApplicationAction(
   return { ok: true, data: { id: candidateId } };
 }
 
+/** Fresh runs + lines for the payroll page client after mutations (Next cache can leave props stale). */
+export async function loadPayrollBundleAction(
+  tenantId: string,
+): Promise<
+  { ok: true; runs: PayrollRunRow[]; linesByRun: Record<string, PayrollLineRow[]> } | { ok: false; error: string }
+> {
+  const ctx = await getUserContext();
+  if (!ctx?.userId || ctx.tenantId !== tenantId) {
+    return { ok: false, error: "Not signed in or wrong property." };
+  }
+  const runsRes = await fetchPayrollRuns(tenantId);
+  if (runsRes.error) return { ok: false, error: runsRes.error };
+  const linesByRun: Record<string, PayrollLineRow[]> = {};
+  for (const r of runsRes.rows) {
+    const { rows, error } = await fetchPayrollLinesForRun(tenantId, r.id);
+    if (error) return { ok: false, error };
+    linesByRun[r.id] = rows;
+  }
+  return { ok: true, runs: runsRes.rows, linesByRun };
+}
+
 export async function createPayrollRunAction(input: {
   tenantId: string;
   periodLabel: string;
   periodStart: string;
   periodEnd: string;
   notes?: string | null;
+  /** At least one employee must be included; lines are created with gross = monthly salary (or 0). */
+  employeeIds: string[];
 }): Promise<Ok<{ id: string }>> {
   const gate = await dbOrAdmin(input.tenantId);
   if (!gate.ok) return { ok: false, error: gate.error };
+  const ids = [...new Set((input.employeeIds ?? []).map((x) => String(x).trim()).filter(Boolean))];
+  if (ids.length === 0) {
+    return { ok: false, error: "Select at least one employee for this payroll run." };
+  }
+
+  const periodStart = String(input.periodStart).trim();
+  const periodEnd = String(input.periodEnd).trim();
+  if (!periodStart || !periodEnd) {
+    return { ok: false, error: "Period start and end are required." };
+  }
+
+  const { data: overlappingRuns, error: overlapErr } = await gate.db
+    .from("payroll_runs")
+    .select("id")
+    .eq("tenant_id", input.tenantId)
+    .lte("period_start", periodEnd)
+    .gte("period_end", periodStart);
+  if (overlapErr) return { ok: false, error: overlapErr.message };
+  const overlapIds = (overlappingRuns ?? []).map((r) => r.id);
+  if (overlapIds.length > 0) {
+    const { data: dupLines, error: dupErr } = await gate.db
+      .from("payroll_lines")
+      .select("employee_id")
+      .eq("tenant_id", input.tenantId)
+      .in("employee_id", ids)
+      .in("payroll_run_id", overlapIds);
+    if (dupErr) return { ok: false, error: dupErr.message };
+    if (dupLines && dupLines.length > 0) {
+      const dupEmpIds = [...new Set(dupLines.map((l) => l.employee_id))];
+      const { data: nameRows, error: nameErr } = await gate.db
+        .from("employees")
+        .select("id, full_name")
+        .in("id", dupEmpIds);
+      if (nameErr) return { ok: false, error: nameErr.message };
+      const names = (nameRows ?? [])
+        .map((e) => e.full_name?.trim() || e.id)
+        .filter(Boolean)
+        .join(", ");
+      return {
+        ok: false,
+        error: `These people are already on another payroll for this same period (${periodStart} → ${periodEnd}): ${names}. Pick different employees or edit the existing run — you can still add other staff in a second run for the same dates.`,
+      };
+    }
+  }
+
   const { data, error } = await gate.db
     .from("payroll_runs")
     .insert({
       tenant_id: input.tenantId,
       period_label: input.periodLabel.trim(),
-      period_start: input.periodStart,
-      period_end: input.periodEnd,
+      period_start: periodStart,
+      period_end: periodEnd,
       status: "draft",
       notes: input.notes?.trim() || null,
     })
     .select("id")
     .single();
   if (error) return { ok: false, error: error.message };
+  const runId = data!.id;
+
+  const { data: emps, error: empErr } = await gate.db
+    .from("employees")
+    .select("id, monthly_salary_cents")
+    .eq("tenant_id", input.tenantId)
+    .in("id", ids);
+  if (empErr) {
+    await gate.db.from("payroll_runs").delete().eq("id", runId);
+    return { ok: false, error: empErr.message };
+  }
+  if (!emps || emps.length !== ids.length) {
+    await gate.db.from("payroll_runs").delete().eq("id", runId);
+    return { ok: false, error: "One or more selected employees are invalid for this property." };
+  }
+
+  const lineRows = emps.map((e) => {
+    const gross = Math.max(0, Number(e.monthly_salary_cents ?? 0));
+    return {
+      tenant_id: input.tenantId,
+      payroll_run_id: runId,
+      employee_id: e.id,
+      gross_cents: gross,
+      deductions_cents: 0,
+      net_cents: gross,
+    };
+  });
+  const { error: lineErr } = await gate.db.from("payroll_lines").insert(lineRows);
+  if (lineErr) {
+    await gate.db.from("payroll_runs").delete().eq("id", runId);
+    return { ok: false, error: lineErr.message };
+  }
+
   revalidateHr();
-  return { ok: true, data: { id: data!.id } };
+  return { ok: true, data: { id: runId } };
 }
 
 export async function upsertPayrollLineAction(input: {
@@ -438,12 +545,54 @@ export async function upsertPayrollLineAction(input: {
 }): Promise<Ok> {
   const gate = await dbOrAdmin(input.tenantId);
   if (!gate.ok) return { ok: false, error: gate.error };
+  const employeeId = String(input.employeeId).trim();
+  if (!employeeId) return { ok: false, error: "Employee is required." };
+
+  const { data: run, error: runErr } = await gate.db
+    .from("payroll_runs")
+    .select("id, period_start, period_end, period_label")
+    .eq("id", input.payrollRunId)
+    .eq("tenant_id", input.tenantId)
+    .maybeSingle();
+  if (runErr) return { ok: false, error: runErr.message };
+  if (!run) return { ok: false, error: "Payroll run not found." };
+
+  const pStart = run.period_start;
+  const pEnd = run.period_end;
+  const { data: otherRuns, error: oErr } = await gate.db
+    .from("payroll_runs")
+    .select("id, period_label, period_start, period_end")
+    .eq("tenant_id", input.tenantId)
+    .neq("id", run.id)
+    .lte("period_start", pEnd)
+    .gte("period_end", pStart);
+  if (oErr) return { ok: false, error: oErr.message };
+  const otherIds = (otherRuns ?? []).map((r) => r.id);
+  if (otherIds.length > 0) {
+    const { data: existingLine, error: lineQErr } = await gate.db
+      .from("payroll_lines")
+      .select("payroll_run_id")
+      .eq("tenant_id", input.tenantId)
+      .eq("employee_id", employeeId)
+      .in("payroll_run_id", otherIds)
+      .limit(1);
+    if (lineQErr) return { ok: false, error: lineQErr.message };
+    if (existingLine && existingLine.length > 0) {
+      const rid = existingLine[0]!.payroll_run_id;
+      const other = (otherRuns ?? []).find((r) => r.id === rid);
+      return {
+        ok: false,
+        error: `This employee is already on another payroll for an overlapping period ("${other?.period_label?.trim() ?? "existing run"}", ${other?.period_start} → ${other?.period_end}). You cannot add them twice to the same pay period — use or edit the other run, or remove them there first.`,
+      };
+    }
+  }
+
   const net = input.grossCents - input.deductionsCents;
   const { error } = await gate.db.from("payroll_lines").upsert(
     {
       tenant_id: input.tenantId,
       payroll_run_id: input.payrollRunId,
-      employee_id: input.employeeId,
+      employee_id: employeeId,
       gross_cents: input.grossCents,
       deductions_cents: input.deductionsCents,
       net_cents: net,

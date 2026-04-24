@@ -46,7 +46,7 @@ export function formatMoneyCents(cents: number | null | undefined): string {
   if (cents == null) return "—";
   return new Intl.NumberFormat(undefined, {
     style: "currency",
-    currency: "USD",
+    currency: "ETB",
   }).format(cents / 100);
 }
 

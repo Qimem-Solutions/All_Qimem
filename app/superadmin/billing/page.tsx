@@ -1,6 +1,17 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { redirect } from "next/navigation";
+import { getUserContext } from "@/lib/queries/context";
+import { fetchSuperadminTenantsReport } from "@/lib/queries/superadmin";
+import { SuperadminBillingView } from "@/components/superadmin/superadmin-billing-view";
 
-export default function SuperadminBillingPage() {
+export const dynamic = "force-dynamic";
+
+export default async function SuperadminBillingPage() {
+  const ctx = await getUserContext();
+  if (!ctx) redirect("/login");
+  if (ctx.globalRole !== "superadmin") redirect("/");
+
+  const { rows, error } = await fetchSuperadminTenantsReport();
+
   return (
     <div className="space-y-6">
       <div>
@@ -8,17 +19,13 @@ export default function SuperadminBillingPage() {
           Billing
         </h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Invoices, payment methods, and platform billing — connect to your provider.
+          Tenant subscriptions, invoice-style register, and payment tools.
         </p>
       </div>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Coming soon</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-zinc-500">
-          Wire Stripe or your billing backend; this shell matches the Superadmin navigation.
-        </CardContent>
-      </Card>
+
+      <div className="rounded-2xl border border-zinc-700/40 bg-zinc-900/40 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ring-1 ring-white/5 md:p-6">
+        <SuperadminBillingView rows={rows} error={error} />
+      </div>
     </div>
   );
 }

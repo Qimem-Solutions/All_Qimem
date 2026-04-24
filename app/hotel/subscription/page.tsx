@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { redirect } from "next/navigation";
 import { getUserContext } from "@/lib/queries/context";
 import { fetchTenantName, fetchTenantSubscription } from "@/lib/queries/tenant-data";
+import { fetchPendingPlanRequestForTenant } from "@/lib/queries/plan-change-requests";
 import { formatDate } from "@/lib/format";
 import { HotelSubscriptionForm } from "@/components/hotel/hotel-subscription-form";
 
@@ -28,9 +29,14 @@ export default async function HotelSubscriptionPage() {
     );
   }
 
-  const [{ name: propertyName }, { subscription, error: subErr }] = await Promise.all([
+  const [
+    { name: propertyName },
+    { subscription, error: subErr },
+    { request: pendingRequest, error: pendingErr },
+  ] = await Promise.all([
     fetchTenantName(tenantId),
     fetchTenantSubscription(tenantId),
+    fetchPendingPlanRequestForTenant(tenantId),
   ]);
 
   return (
@@ -40,14 +46,19 @@ export default async function HotelSubscriptionPage() {
           Subscription
         </h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          View your plan and billing period for this property. Changes apply to your property’s
-          subscription record in the platform database.
+          View your plan and billing period. To switch tiers, submit a request — a platform superadmin
+          must approve it before your subscription record is updated.
         </p>
       </div>
 
       {subErr ? (
         <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
           {subErr}
+        </p>
+      ) : null}
+      {pendingErr ? (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
+          {pendingErr}
         </p>
       ) : null}
 
@@ -79,7 +90,7 @@ export default async function HotelSubscriptionPage() {
               <CardTitle>Current plan</CardTitle>
               <CardDescription>Status and renewal as stored for this property.</CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-wrap gap-6 text-sm">
+            <CardContent className="flex flex-col gap-6 sm:flex-row sm:flex-wrap sm:gap-6 text-sm">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-muted">Plan</p>
                 <p className="mt-1 capitalize text-foreground">{subscription.plan}</p>
@@ -103,14 +114,18 @@ export default async function HotelSubscriptionPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Change plan</CardTitle>
+              <CardTitle>Request a plan change</CardTitle>
               <CardDescription>
-                Select the tier that matches your contract. For invoicing or payment method changes,
-                contact your account team.
+                Choose the target tier. Your request is sent to the platform team for approval. For
+                invoices or payment methods, contact your account team.
               </CardDescription>
             </CardHeader>
             <CardContent className="max-w-xl">
-              <HotelSubscriptionForm initialPlan={subscription.plan} />
+              <HotelSubscriptionForm
+                initialPlan={subscription.plan}
+                hasPendingRequest={Boolean(pendingRequest)}
+                requestedPlanForPending={pendingRequest?.requested_plan ?? null}
+              />
             </CardContent>
           </Card>
         </>

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Sparkles } from "lucide-react";
+
+export const dynamic = "force-static";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function WelcomePage() {

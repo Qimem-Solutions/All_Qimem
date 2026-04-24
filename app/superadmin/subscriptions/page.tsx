@@ -7,6 +7,8 @@ import {
   fetchSubscriptionPlansSummary,
   fetchSubscriptionsWithTenants,
 } from "@/lib/queries/superadmin";
+import { fetchPendingPlanChangeRequestsForSuperadmin } from "@/lib/queries/plan-change-requests";
+import { SuperadminPendingPlanRequests } from "@/components/superadmin/superadmin-pending-plan-requests";
 import { formatDate } from "@/lib/format";
 
 const productPlans = [
@@ -32,8 +34,12 @@ export default async function SubscriptionsPage() {
   if (!ctx) redirect("/login");
   if (ctx.globalRole !== "superadmin") redirect("/");
 
-  const { rows: subs, error: listErr } = await fetchSubscriptionsWithTenants();
-  const { byPlan, error: planErr } = await fetchSubscriptionPlansSummary();
+  const [{ rows: subs, error: listErr }, { byPlan, error: planErr }, { rows: pendingRequests, error: pendingErr }] =
+    await Promise.all([
+      fetchSubscriptionsWithTenants(),
+      fetchSubscriptionPlansSummary(),
+      fetchPendingPlanChangeRequestsForSuperadmin(),
+    ]);
 
   return (
     <div className="space-y-8">
@@ -51,6 +57,29 @@ export default async function SubscriptionsPage() {
           {[listErr, planErr].filter(Boolean).join(" ")}
         </p>
       ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Plan change requests</CardTitle>
+          <CardDescription>
+            Hotels use <span className="font-semibold text-zinc-300">Request plan change</span> on their
+            subscription page. Approve to update their row in <code className="text-xs">subscriptions</code>
+            , or decline to close the request without changing billing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {pendingErr ? (
+            <p className="text-sm text-amber-200">
+              {pendingErr}
+              {pendingErr.toLowerCase().includes("relation") || pendingErr.includes("does not exist")
+                ? " — Run the migration that creates subscription_plan_requests."
+                : null}
+            </p>
+          ) : (
+            <SuperadminPendingPlanRequests rows={pendingRequests} />
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-3">
         {productPlans.map((p) => {

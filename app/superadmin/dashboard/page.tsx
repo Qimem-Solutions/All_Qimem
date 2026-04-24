@@ -27,8 +27,10 @@ export default async function SuperadminDashboardPage() {
   if (!ctx) redirect("/login");
   if (ctx.globalRole !== "superadmin") redirect("/");
 
-  const stats = await fetchSuperadminDashboardStats();
-  const { rows: tenants, error: tenantsErr } = await fetchTenantsWithSubscriptions();
+  const [stats, { rows: tenants, error: tenantsErr }] = await Promise.all([
+    fetchSuperadminDashboardStats(),
+    fetchTenantsWithSubscriptions(),
+  ]);
 
   const recent = tenants.slice(0, 8);
 

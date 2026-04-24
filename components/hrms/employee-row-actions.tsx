@@ -283,7 +283,7 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor={`ms-${row.id}`}>
-                    Monthly salary (USD)
+                    Monthly salary (ETB)
                   </label>
                   <Input
                     id={`ms-${row.id}`}

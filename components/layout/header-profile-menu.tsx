@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { LogOut, User } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -53,12 +53,14 @@ export function HeaderProfileMenu({ size = "default" }: { size?: Size }) {
         onClick={() => setOpen((o) => !o)}
         className={cn(
           sizeClass[size],
-          "rounded-full bg-gradient-to-br from-amber-700 to-zinc-800 ring-2 ring-gold/30 transition hover:ring-gold/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold/50",
+          "inline-flex items-center justify-center rounded-full border border-border bg-surface-elevated text-muted ring-2 ring-gold/20 transition hover:text-foreground hover:ring-gold/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold/50",
         )}
         aria-label="Account menu"
         aria-expanded={open}
         aria-haspopup="menu"
-      />
+      >
+        <User className={cn(size === "compact" ? "h-4 w-4" : "h-5 w-5")} aria-hidden />
+      </button>
       {open ? (
         <div
           role="menu"

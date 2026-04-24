@@ -85,7 +85,7 @@ function buildCsv(rows: ReservationLedgerRow[]): string {
     "Check out",
     "Status",
     "Payment Status",
-    "Balance (Birr)",
+    "Balance (ETB)",
     "Created",
   ];
   const lines = [header.map(escapeCsvCell).join(",")];

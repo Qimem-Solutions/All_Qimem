@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 
 export type UserContext = {
@@ -7,7 +8,7 @@ export type UserContext = {
   fullName: string | null;
 };
 
-export async function getUserContext(): Promise<UserContext | null> {
+export const getUserContext = cache(async (): Promise<UserContext | null> => {
   const supabase = await createClient();
   const {
     data: { user },
@@ -26,7 +27,7 @@ export async function getUserContext(): Promise<UserContext | null> {
     tenantId: profile?.tenant_id ?? null,
     fullName: profile?.full_name ?? null,
   };
-}
+});
 
 export async function requireTenantId(): Promise<string | null> {
   const ctx = await getUserContext();
