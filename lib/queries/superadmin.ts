@@ -70,20 +70,23 @@ export async function fetchTenantsWithSubscriptions(): Promise<{
 }> {
   const supabase = await createClient();
 
-  const { data: tenants, error: tErr } = await supabase
-    .from("tenants")
-    .select("id, name, slug, region, description, cover_image_url, created_at")
-    .order("created_at", { ascending: false });
+  const [tenantsRes, subsRes] = await Promise.all([
+    supabase
+      .from("tenants")
+      .select("id, name, slug, region, description, cover_image_url, created_at")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("subscriptions")
+      .select("tenant_id, plan, status, created_at")
+      .order("created_at", { ascending: false }),
+  ]);
 
+  const { data: tenants, error: tErr } = tenantsRes;
   if (tErr) {
     return { rows: [], error: tErr.message };
   }
 
-  const { data: subs, error: sErr } = await supabase
-    .from("subscriptions")
-    .select("tenant_id, plan, status, created_at")
-    .order("created_at", { ascending: false });
-
+  const { data: subs, error: sErr } = subsRes;
   if (sErr) {
     return { rows: [], error: sErr.message };
   }
@@ -116,6 +119,128 @@ export async function fetchTenantsWithSubscriptions(): Promise<{
       plan: sub?.plan ?? null,
       subStatus: sub?.status ?? null,
       subCreatedAt: sub?.created_at ?? null,
+    };
+  });
+
+  return { rows, error: null };
+}
+
+/** Full superadmin view: directory fields plus operational counts and billing period. */
+export type TenantReportRow = TenantRow & {
+  employeeCount: number;
+  profileCount: number;
+  roomsCount: number;
+  subPeriodEnd: string | null;
+  initialAdminEmail: string | null;
+  initialAdminName: string | null;
+};
+
+/**
+ * All tenants with subscription merge, per-tenant employee / profile / room counts, and provisioned admin hints.
+ * Uses parallel Supabase reads; superadmin RLS should allow `employees` / `rooms` counts.
+ */
+export async function fetchSuperadminTenantsReport(): Promise<{
+  rows: TenantReportRow[];
+  error: string | null;
+}> {
+  const supabase = await createClient();
+
+  const [tenantsRes, subsRes, empRes, profRes, roomsRes] = await Promise.all([
+    supabase
+      .from("tenants")
+      .select(
+        "id, name, slug, region, description, cover_image_url, created_at, initial_admin_email, initial_admin_name",
+      )
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("subscriptions")
+      .select("tenant_id, plan, status, created_at, current_period_end")
+      .order("created_at", { ascending: false }),
+    supabase.from("employees").select("tenant_id"),
+    supabase.from("profiles").select("tenant_id").not("tenant_id", "is", null),
+    supabase.from("rooms").select("tenant_id"),
+  ]);
+
+  const { data: tenants, error: tErr } = tenantsRes;
+  if (tErr) {
+    return { rows: [], error: tErr.message };
+  }
+
+  const { data: subs, error: sErr } = subsRes;
+  if (sErr) {
+    return { rows: [], error: sErr.message };
+  }
+
+  if (empRes.error) {
+    return { rows: [], error: `Employees: ${empRes.error.message}` };
+  }
+  if (profRes.error) {
+    return { rows: [], error: `Profiles: ${profRes.error.message}` };
+  }
+  if (roomsRes.error) {
+    return { rows: [], error: `Rooms: ${roomsRes.error.message}` };
+  }
+
+  const countBy = (rows: { tenant_id: string | null }[] | null) => {
+    const m = new Map<string, number>();
+    for (const r of rows ?? []) {
+      if (!r.tenant_id) continue;
+      m.set(r.tenant_id, (m.get(r.tenant_id) ?? 0) + 1);
+    }
+    return m;
+  };
+
+  const empByTenant = countBy(empRes.data ?? null);
+  const profByTenant = countBy(profRes.data ?? null);
+  const roomsByTenant = countBy(roomsRes.data ?? null);
+
+  const latestSubByTenant = new Map<
+    string,
+    { plan: string; status: string; created_at: string; current_period_end: string | null }
+  >();
+  for (const s of subs ?? []) {
+    if (!latestSubByTenant.has(s.tenant_id)) {
+      const row = s as {
+        tenant_id: string;
+        plan: string;
+        status: string;
+        created_at: string | null;
+        current_period_end: string | null;
+      };
+      latestSubByTenant.set(s.tenant_id, {
+        plan: row.plan,
+        status: row.status,
+        created_at: row.created_at ?? "",
+        current_period_end: row.current_period_end ?? null,
+      });
+    }
+  }
+
+  const rows: TenantReportRow[] = (tenants ?? []).map((t) => {
+    const sub = latestSubByTenant.get(t.id);
+    const tRow = t as typeof t & {
+      description?: string | null;
+      cover_image_url?: string | null;
+      initial_admin_email?: string | null;
+      initial_admin_name?: string | null;
+    };
+    return {
+      id: t.id,
+      name: t.name,
+      slug: t.slug,
+      region: t.region,
+      description: tRow.description ?? null,
+      cover_image_url: tRow.cover_image_url ?? null,
+      created_at: t.created_at ?? "",
+      plan: sub?.plan ?? null,
+      subStatus: sub?.status ?? null,
+      subCreatedAt: sub?.created_at ?? null,
+      subPeriodEnd: sub?.current_period_end ?? null,
+      employeeCount: empByTenant.get(t.id) ?? 0,
+      profileCount: profByTenant.get(t.id) ?? 0,
+      roomsCount: roomsByTenant.get(t.id) ?? 0,
+      initialAdminEmail: tRow.initial_admin_email ?? null,
+      initialAdminName: tRow.initial_admin_name ?? null,
     };
   });
 

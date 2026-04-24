@@ -123,7 +123,7 @@ export function AppShell({
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col pl-64">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-background/90 px-6 backdrop-blur-md">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-background px-6">
           {propertyTag ? (
             <span className="text-sm font-semibold text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
               {propertyTag}

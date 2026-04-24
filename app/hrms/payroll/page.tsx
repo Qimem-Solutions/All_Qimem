@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 import { getUserContext } from "@/lib/queries/context";
 import { canManageHrStaff } from "@/lib/auth/can-manage-hr-staff";
-import { fetchPayrollRuns, fetchPayrollLinesForRun, fetchEmployeeOptions } from "@/lib/queries/hrms-extended";
+import { fetchPayrollRuns, fetchPayrollLinesForRun, fetchEmployeesForPayroll } from "@/lib/queries/hrms-extended";
 import { HrmsPayrollClient } from "@/components/hrms/hrms-payroll-client";
 import { HrmsLinkButton } from "@/components/hrms/hrms-link-button";
+
+export const dynamic = "force-dynamic";
 
 export default async function HrmsPayrollPage() {
   const ctx = await getUserContext();
@@ -25,7 +27,7 @@ export default async function HrmsPayrollPage() {
   const [manage, runsRes, empRes] = await Promise.all([
     canManageHrStaff(ctx),
     fetchPayrollRuns(tenantId),
-    fetchEmployeeOptions(tenantId),
+    fetchEmployeesForPayroll(tenantId),
   ]);
 
   const linesByRun: Record<string, Awaited<ReturnType<typeof fetchPayrollLinesForRun>>["rows"]> = {};
@@ -33,6 +35,9 @@ export default async function HrmsPayrollPage() {
     const { rows, error } = await fetchPayrollLinesForRun(tenantId, r.id);
     if (!error) linesByRun[r.id] = rows;
   }
+
+  const d = new Date();
+  const defaultYearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
   return (
     <div className="space-y-8">
@@ -57,12 +62,19 @@ export default async function HrmsPayrollPage() {
         </p>
       ) : null}
 
+      {empRes.error ? (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
+          {empRes.error}
+        </p>
+      ) : null}
+
       <HrmsPayrollClient
         tenantId={tenantId}
         canManage={manage}
         runs={runsRes.rows}
         linesByRun={linesByRun}
-        employees={empRes.rows}
+        payrollEmployees={empRes.rows}
+        defaultYearMonth={defaultYearMonth}
       />
     </div>
   );

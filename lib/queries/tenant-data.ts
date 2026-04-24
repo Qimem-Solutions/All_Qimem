@@ -499,6 +499,63 @@ export async function fetchTenantName(tenantId: string) {
   return { name: data?.name ?? null, error: null as string | null };
 }
 
+/** Full row for Hotel Admin → Settings (requires migration `tenant_hotel_settings`). */
+export type HotelTenantSettings = {
+  name: string;
+  slug: string;
+  region: string | null;
+  description: string | null;
+  cover_image_url: string | null;
+  logo_url: string | null;
+  timezone: string;
+  default_currency: string;
+  contact_phone: string | null;
+  reservations_email: string | null;
+  default_check_in_time: string | null;
+  default_check_out_time: string | null;
+  policies_notes: string | null;
+};
+
+export async function fetchHotelTenantSettings(tenantId: string): Promise<{
+  settings: HotelTenantSettings | null;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tenants")
+    .select(
+      "name, slug, region, description, cover_image_url, logo_url, timezone, default_currency, contact_phone, reservations_email, default_check_in_time, default_check_out_time, policies_notes",
+    )
+    .eq("id", tenantId)
+    .maybeSingle();
+
+  if (error) {
+    return { settings: null, error: error.message };
+  }
+  if (!data) {
+    return { settings: null, error: null };
+  }
+  const row = data as Record<string, unknown>;
+  return {
+    settings: {
+      name: String(data.name ?? ""),
+      slug: String(data.slug ?? ""),
+      region: (row.region as string | null) ?? null,
+      description: (row.description as string | null) ?? null,
+      cover_image_url: (row.cover_image_url as string | null) ?? null,
+      logo_url: (row.logo_url as string | null) ?? null,
+      timezone: String(row.timezone ?? "UTC"),
+      default_currency: String(row.default_currency ?? "ETB"),
+      contact_phone: (row.contact_phone as string | null) ?? null,
+      reservations_email: (row.reservations_email as string | null) ?? null,
+      default_check_in_time: (row.default_check_in_time as string | null) ?? null,
+      default_check_out_time: (row.default_check_out_time as string | null) ?? null,
+      policies_notes: (row.policies_notes as string | null) ?? null,
+    },
+    error: null,
+  };
+}
+
 /** Name, slug, description, and cover for hotel portfolio / property overview. */
 export type TenantPortfolio = {
   name: string;

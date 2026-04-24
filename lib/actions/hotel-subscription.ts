@@ -15,15 +15,20 @@ function revalidate() {
   for (const p of PATHS) revalidatePath(p);
 }
 
-export async function updateHotelSubscriptionPlanAction(input: {
+/**
+ * Hotel admin requests a plan change; superadmin approves in the platform console.
+ * Does not modify `subscriptions` until approved.
+ */
+export async function requestHotelPlanChangeAction(input: {
   plan: string;
+  message?: string;
 }): Promise<Ok> {
   const ctx = await getUserContext();
   if (!ctx?.userId) {
     return { ok: false, error: "You must be signed in." };
   }
   if (ctx.globalRole !== "hotel_admin" || !ctx.tenantId) {
-    return { ok: false, error: "Only a property hotel administrator can change the subscription." };
+    return { ok: false, error: "Only a property hotel administrator can request a plan change." };
   }
 
   const plan = input.plan.trim().toLowerCase();
@@ -31,23 +36,82 @@ export async function updateHotelSubscriptionPlanAction(input: {
     return { ok: false, error: "Invalid plan." };
   }
 
+  const message = (input.message ?? "").trim() || null;
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("subscriptions")
-    .update({ plan })
-    .eq("tenant_id", ctx.tenantId)
-    .select("id");
 
-  if (error) {
-    return { ok: false, error: error.message };
+  const { data: sub, error: subErr } = await supabase
+    .from("subscriptions")
+    .select("plan")
+    .eq("tenant_id", ctx.tenantId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (subErr) {
+    return { ok: false, error: subErr.message };
   }
-  if (!data?.length) {
+  if (!sub) {
     return {
       ok: false,
-      error: "No subscription row found for this property. Ask a platform admin to set up billing first.",
+      error:
+        "No subscription row found for this property. Ask a platform admin to provision billing before requesting a plan change.",
     };
   }
 
+  const currentPlan = (sub.plan as string).toLowerCase();
+  if (currentPlan === plan) {
+    return { ok: false, error: "Choose a different plan than your current one, or wait for a pending request to be processed." };
+  }
+
+  const { data: existing, error: exErr } = await supabase
+    .from("subscription_plan_requests")
+    .select("id")
+    .eq("tenant_id", ctx.tenantId)
+    .eq("status", "pending")
+    .maybeSingle();
+
+  if (exErr) {
+    if (!exErr.message.includes("relation") && !exErr.message.includes("does not exist")) {
+      return { ok: false, error: exErr.message };
+    }
+    return {
+      ok: false,
+      error:
+        "Plan requests are not available until the database migration for subscription_plan_requests is applied.",
+    };
+  }
+
+  const payload = {
+    requested_plan: plan,
+    current_plan: currentPlan,
+    message,
+    status: "pending" as const,
+  };
+
+  if (existing?.id) {
+    const { error: upErr } = await supabase
+      .from("subscription_plan_requests")
+      .update({
+        requested_plan: plan,
+        current_plan: currentPlan,
+        message,
+      })
+      .eq("id", existing.id)
+      .eq("status", "pending");
+    if (upErr) {
+      return { ok: false, error: upErr.message };
+    }
+  } else {
+    const { error: insErr } = await supabase.from("subscription_plan_requests").insert({
+      tenant_id: ctx.tenantId,
+      ...payload,
+    });
+    if (insErr) {
+      return { ok: false, error: insErr.message };
+    }
+  }
+
+  revalidatePath("/superadmin/subscriptions");
   revalidate();
   return { ok: true };
 }

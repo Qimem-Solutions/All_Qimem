@@ -296,7 +296,7 @@ export function FrontDeskPageClient({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <span className="text-xs text-zinc-400">Payment (USD)</span>
+                  <span className="text-xs text-zinc-400">Payment (ETB)</span>
                   <Input
                     className="mt-1"
                     type="text"

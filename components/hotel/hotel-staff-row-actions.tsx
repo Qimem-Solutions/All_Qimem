@@ -437,7 +437,7 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
                   </div>
                   <div>
                     <label className="text-xs font-medium text-muted" htmlFor={`u-sal-${user.id}`}>
-                      Monthly salary (USD)
+                      Monthly salary (ETB)
                     </label>
                     <Input
                       id={`u-sal-${user.id}`}

@@ -1,6 +1,6 @@
 "use client";
 
-import { AppShellWrapper } from "@/components/layout/app-shell-wrapper";
+import { AppShellWrapper, type AppShellNavInput } from "@/components/layout/app-shell-wrapper";
 import { hrmsNav } from "@/lib/nav/hrms";
 
 export function HrmsShell({
@@ -16,7 +16,7 @@ export function HrmsShell({
         title: "Majestic HR",
         subtitle: "The Sovereign Group · HR Administration",
       }}
-      navItems={[...hrmsNav]}
+      navItems={hrmsNav as unknown as AppShellNavInput}
       propertyTag="Majestic Onyx"
       userBlock={{ name: "Alex Sterling", role: "General Manager" }}
       readOnly={readOnly}

@@ -129,7 +129,7 @@ export function CreateStaffButton({ departments }: Props) {
                     className="mb-1 block text-xs font-medium text-zinc-400"
                     htmlFor="monthlySalary"
                   >
-                    Monthly salary (USD)
+                    Monthly salary (ETB)
                   </label>
                   <Input
                     id="monthlySalary"

@@ -35,7 +35,7 @@ export function HrrmShell({
 }: HrrmShellProps) {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <div className="sticky top-0 z-40 border-b border-border bg-sidebar/95 backdrop-blur-md">
+      <div className="sticky top-0 z-40 border-b border-border bg-sidebar">
         <div className="flex h-14 items-center justify-between px-6">
           <span className="text-sm font-semibold tracking-wide text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
             {brand.title}

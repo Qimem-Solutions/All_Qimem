@@ -72,8 +72,10 @@ export default async function TenantsManagementPage() {
   if (!ctx) redirect("/login");
   if (ctx.globalRole !== "superadmin") redirect("/");
 
-  const { rows: tenants, error } = await fetchTenantsWithSubscriptions();
-  const { byPlan, error: planErr } = await fetchSubscriptionPlansSummary();
+  const [{ rows: tenants, error }, { byPlan, error: planErr }] = await Promise.all([
+    fetchTenantsWithSubscriptions(),
+    fetchSubscriptionPlansSummary(),
+  ]);
 
   const total = tenants.length;
   const activeSubs = tenants.filter((t) => (t.subStatus ?? "").toLowerCase() === "active").length;
