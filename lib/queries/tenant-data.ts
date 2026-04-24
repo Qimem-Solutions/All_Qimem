@@ -987,7 +987,7 @@ export async function fetchShiftsUpcoming(tenantId: string, limit = 80) {
 export async function fetchReservationStats(tenantId: string) {
   const supabase = await getSupabaseHrrmRead();
   const today = localDateIso();
-  const [checkInsToday, departuresToday, nonCanceled] = await Promise.all([
+  const [checkInsToday, departuresToday, activeReservations] = await Promise.all([
     supabase
       .from("reservations")
       .select("id", { count: "exact", head: true })
@@ -1003,17 +1003,17 @@ export async function fetchReservationStats(tenantId: string) {
       .from("reservations")
       .select("id", { count: "exact", head: true })
       .eq("tenant_id", tenantId)
-      .neq("status", "canceled"),
+      .in("status", ["checked_in", "pending"]),
   ]);
 
   return {
     checkInsToday: checkInsToday.count ?? 0,
     departuresToday: departuresToday.count ?? 0,
-    activeBookings: nonCanceled.count ?? 0,
+    activeBookings: activeReservations.count ?? 0,
     error:
       checkInsToday.error?.message ||
       departuresToday.error?.message ||
-      nonCanceled.error?.message ||
+      activeReservations.error?.message ||
       null,
   };
 }

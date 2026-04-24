@@ -25,6 +25,11 @@ function isCanceledStatus(s: string) {
   return x === "canceled" || x === "cancelled";
 }
 
+function isActiveReservationStatus(s: string) {
+  const x = s.toLowerCase();
+  return x === "checked_in" || x === "pending";
+}
+
 function statusTone(s: string) {
   const x = s.toLowerCase();
   if (x === "confirmed") return "green";
@@ -141,7 +146,7 @@ export function ReservationsLedgerClient({
     let canceled = 0;
     for (const r of allRows) {
       if (isCanceledStatus(r.status)) canceled += 1;
-      else active += 1;
+      if (isActiveReservationStatus(r.status)) active += 1;
       if (r.check_in === todayIso) arrivals += 1;
       if (r.check_out === todayIso) departures += 1;
     }
@@ -157,7 +162,7 @@ export function ReservationsLedgerClient({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return allRows.filter((r) => {
-      if (tab === "active" && isCanceledStatus(r.status)) return false;
+      if (tab === "active" && !isActiveReservationStatus(r.status)) return false;
       if (tab === "canceled" && !isCanceledStatus(r.status)) return false;
       if (tab === "arrivals" && r.check_in !== todayIso) return false;
       if (tab === "departures" && r.check_out !== todayIso) return false;
@@ -226,7 +231,7 @@ export function ReservationsLedgerClient({
             <p className="text-xl font-semibold text-zinc-200">{stats.departuresToday}</p>
           </Card>
           <Card className="border-gold/20 px-4 py-3">
-            <p className="text-[10px] uppercase text-zinc-500">Active (non-canceled)</p>
+            <p className="text-[10px] uppercase text-zinc-500">Active (checked-in / pending)</p>
             <p className="text-xl font-semibold text-gold">{stats.activeBookings}</p>
           </Card>
         </div>
