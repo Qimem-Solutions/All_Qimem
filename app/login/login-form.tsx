@@ -13,6 +13,7 @@ import {
   isKnownDefaultPassword,
   PASSWORD_CHANGE_PROMPT_STORAGE_KEY,
 } from "@/lib/constants/passwords";
+import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
 import { cn } from "@/lib/utils";
 
 type Lang = "en" | "am";
@@ -173,11 +174,25 @@ export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
         return;
       }
 
-      const { data: profile, error: profileError } = await supabase
+      let profileRes = await supabase
         .from("profiles")
         .select("global_role, must_change_password")
         .eq("id", auth.user.id)
         .maybeSingle();
+
+      if (profileRes.error && isMissingDbColumnError(profileRes.error)) {
+        profileRes = await supabase
+          .from("profiles")
+          .select("global_role")
+          .eq("id", auth.user.id)
+          .maybeSingle();
+      }
+
+      const profile = profileRes.data as {
+        global_role?: string | null;
+        must_change_password?: boolean | null;
+      } | null;
+      const profileError = profileRes.error;
 
       if (profileError) {
         await supabase.auth.signOut();

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { PASSWORD_CHANGE_PROMPT_STORAGE_KEY } from "@/lib/constants/passwords";
+import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -49,15 +50,20 @@ export function PasswordChangeGate({ children }: { children: ReactNode }) {
         typeof sessionStorage !== "undefined" &&
         sessionStorage.getItem(PASSWORD_CHANGE_PROMPT_STORAGE_KEY) === "1";
 
-      const { data: prof, error: profErr } = await supabase
+      let dbFlag = false;
+      let profRes = await supabase
         .from("profiles")
         .select("must_change_password")
         .eq("id", user.id)
         .maybeSingle();
 
-      if (cancelled) return;
+      if (profRes.error && isMissingDbColumnError(profRes.error)) {
+        dbFlag = false;
+      } else if (!profRes.error && profRes.data) {
+        dbFlag = profRes.data.must_change_password === true;
+      }
 
-      const dbFlag = !profErr && prof?.must_change_password === true;
+      if (cancelled) return;
       setOpen(sessionFlag || dbFlag);
       setChecking(false);
     }
@@ -104,7 +110,7 @@ export function PasswordChangeGate({ children }: { children: ReactNode }) {
         .update({ must_change_password: false })
         .eq("id", user.id);
 
-      if (profErr) {
+      if (profErr && !isMissingDbColumnError(profErr)) {
         setError(
           `Password updated, but profile flag failed: ${profErr.message}. Try signing out and back in.`,
         );
