@@ -25,16 +25,23 @@ function infoLabelClass() {
   return "text-[11px] font-medium uppercase tracking-[0.14em] text-muted";
 }
 
+function getAvailabilityStatus(available: number, physical: number) {
+  if (physical <= 0) return "unavailable";
+  if (available <= 0) return "full";
+  if (available <= Math.max(1, Math.floor(physical / 3))) return "low";
+  return "open";
+}
+
 /** Cell styling that works in light and dark mode */
-function occupancyTone(available: number, physical: number) {
-  if (physical <= 0) return "border-border bg-muted/30 text-muted";
-  if (available <= 0) {
+function occupancyTone(status: ReturnType<typeof getAvailabilityStatus>) {
+  if (status === "unavailable") return "border-border bg-muted/30 text-muted";
+  if (status === "full") {
     return "border-red-500/30 bg-red-500/10 text-red-800 dark:bg-red-950/40 dark:text-red-200";
   }
-  if (available === physical) {
-    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100";
+  if (status === "low") {
+    return "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
   }
-  return "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
+  return "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100";
 }
 
 export function AvailabilityPageClient({
@@ -67,6 +74,7 @@ export function AvailabilityPageClient({
   const [guestOpen, setGuestOpen] = useState(false);
   const [guest, setGuest] = useState<GuestPick | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedGuestQueryLocked = guest != null && guestQuery.trim() === guest.full_name.trim();
 
   const [checkIn, setCheckIn] = useState(() => addDaysToIso(startDate, 0));
   const [checkOut, setCheckOut] = useState(() => addDaysToIso(startDate, 3));
@@ -82,6 +90,10 @@ export function AvailabilityPageClient({
       setGuestHits([]);
       return;
     }
+    if (selectedGuestQueryLocked) {
+      setGuestOpen(false);
+      return;
+    }
     if (searchTimer.current) clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => {
       void (async () => {
@@ -95,7 +107,7 @@ export function AvailabilityPageClient({
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
-  }, [guestQuery]);
+  }, [guestQuery, selectedGuestQueryLocked]);
 
   const visibleRows = useMemo(
     () => matrix.rows.filter((r) => !hiddenTypes.has(r.roomTypeId)),
@@ -365,16 +377,15 @@ export function AvailabilityPageClient({
                             </p>
                           </td>
                           {row.cells.map((cell) => {
-                            const soldOut = cell.physical > 0 && cell.available === 0;
+                            const status = getAvailabilityStatus(cell.available, cell.physical);
                             const isSelected = selectedTypeId === row.roomTypeId && selectedNight === cell.date;
-                            const low = cell.physical > 0 && cell.available > 0 && cell.available <= Math.max(1, Math.floor(cell.physical / 3));
                             return (
                               <td key={cell.date} className={cn("px-1 py-3", cell.date === todayIso && "bg-gold/5")}>
                                 <button
                                   type="button"
                                   className={cn(
                                     "w-full rounded-xl border px-2 py-3 text-left transition hover:bg-muted/40",
-                                    occupancyTone(cell.available, cell.physical),
+                                    occupancyTone(status),
                                     isSelected && "ring-2 ring-gold ring-offset-2 ring-offset-background",
                                   )}
                                   onClick={() => onCellClick(row, cell.date)}
@@ -384,7 +395,9 @@ export function AvailabilityPageClient({
                                     {cell.available}/{cell.physical}
                                   </span>
                                   <span className="mt-1 block text-[10px] opacity-90">{cell.priceCents > 0 ? formatBirrCents(cell.priceCents) : "—"}</span>
-                                  <span className="mt-1 block text-[10px] opacity-90">{soldOut ? "Full" : low ? "Low" : "Open"}</span>
+                                  <span className="mt-1 block text-[10px] opacity-90">
+                                    {status === "full" ? "Full" : status === "low" ? "Low" : status === "open" ? "Open" : "N/A"}
+                                  </span>
                                 </button>
                               </td>
                             );
@@ -417,9 +430,15 @@ export function AvailabilityPageClient({
                       value={guestQuery}
                       onChange={(e) => {
                         setGuestQuery(e.target.value);
-                        if (!e.target.value.trim()) setGuest(null);
+                        if (!e.target.value.trim()) {
+                          setGuest(null);
+                        } else if (guest && e.target.value.trim() !== guest.full_name.trim()) {
+                          setGuest(null);
+                        }
                       }}
-                      onFocus={() => guestHits.length > 0 && setGuestOpen(true)}
+                      onFocus={() => {
+                        if (guestHits.length > 0 && !selectedGuestQueryLocked) setGuestOpen(true);
+                      }}
                     />
                   </div>
                   {guest ? (
