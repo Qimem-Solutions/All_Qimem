@@ -9,15 +9,88 @@ import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { createClient } from "@/lib/supabase/client";
 import { dashboardPathForRole } from "@/lib/auth/roles";
+import { cn } from "@/lib/utils";
+
+type Lang = "en" | "am";
+
+const copy: Record<
+  Lang,
+  {
+    unifiedSignIn: string;
+    credentialsHint: string;
+    email: string;
+    password: string;
+    rememberMe: string;
+    forgotPassword: string;
+    signingIn: string;
+    signIn: string;
+    orContinue: string;
+    google: string;
+    showPassword: string;
+    hidePassword: string;
+    backWelcome: string;
+    couldNotSignIn: string;
+    noProfile: string;
+    genericError: string;
+    invalidCredentialsHint: string;
+  }
+> = {
+  en: {
+    unifiedSignIn: "Unified sign-in",
+    credentialsHint:
+      "Enter your credentials — you'll be redirected to the right workspace from your profile.",
+    email: "Email",
+    password: "Password",
+    rememberMe: "Remember me",
+    forgotPassword: "Forgot password?",
+    signingIn: "Signing in…",
+    signIn: "Sign in",
+    orContinue: "Or continue with",
+    google: "Google",
+    showPassword: "Show password",
+    hidePassword: "Hide password",
+    backWelcome: "← Back to welcome",
+    couldNotSignIn: "Could not sign in.",
+    noProfile:
+      "Your account has no profile yet. Ask an administrator to provision your access.",
+    genericError: "Something went wrong.",
+    invalidCredentialsHint:
+      "Invalid credentials. Migrations only touch the database — they do not register a password in Auth. Add your project's service role key to .env.local as SUPABASE_SERVICE_ROLE_KEY, then run: npm run seed:superadmin (from the web folder). Or create the user manually under Supabase → Authentication → Users.",
+  },
+  am: {
+    unifiedSignIn: "የተዋሃደ ምልክት ግባ",
+    credentialsHint:
+      "መለያዎን ያስገቡ — ከመገለጫዎ በመነሻ የትክክለኛው የስራ ቦታ ይወስድዎታል።",
+    email: "ኢሜይል",
+    password: "የይለፍ ቃል",
+    rememberMe: "አስታውሰኝ",
+    forgotPassword: "የይለፍ ቃል ረሳኽው?",
+    signingIn: "በመግባት ላይ…",
+    signIn: "ግባ",
+    orContinue: "ወይም በዚህ ይቀጥሉ",
+    google: "Google",
+    showPassword: "የይለፍ ቃል አሳይ",
+    hidePassword: "የይለፍ ቃል ደብቅ",
+    backWelcome: "← ወደ ሰላምታ ተመለስ",
+    couldNotSignIn: "መግባት አልተቻለም።",
+    noProfile:
+      "ለመለያዎ መገለጫ የለም። የመዳረሻ ማብቃያ እንዲስጥ አስተዳዳሪ ያግኙ።",
+    genericError: "ስህተት ተፈጥሯል።",
+    invalidCredentialsHint:
+      "የመግባት ዝርዝሮች ትክክል አይደሉም። የተጠቃሚውን በአስተዳዳሪ ይፍጠሩ ወይም በ Supabase Authentication ይመዝገቡ።",
+  },
+};
 
 export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
-  const [lang, setLang] = useState<"en" | "ar">("en");
+  const [lang, setLang] = useState<Lang>("en");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const t = copy[lang];
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -35,14 +108,16 @@ export function LoginForm() {
           /invalid login|invalid credentials|email not confirmed/i.test(raw);
         setError(
           invalid
-            ? `${raw} Migrations only touch the database — they do not register a password in Auth. Add your project’s service role key to .env.local as SUPABASE_SERVICE_ROLE_KEY, then run: npm run seed:superadmin (from the web folder). Or create the user manually under Supabase → Authentication → Users.`
+            ? lang === "am"
+              ? `${raw} ${t.invalidCredentialsHint}`
+              : `${raw} ${copy.en.invalidCredentialsHint}`
             : raw,
         );
         setLoading(false);
         return;
       }
       if (!auth.user) {
-        setError("Could not sign in.");
+        setError(t.couldNotSignIn);
         setLoading(false);
         return;
       }
@@ -63,9 +138,7 @@ export function LoginForm() {
       const actualRole = profile?.global_role ?? null;
       if (!actualRole) {
         await supabase.auth.signOut();
-        setError(
-          "Your account has no profile yet. Ask an administrator to provision your access.",
-        );
+        setError(t.noProfile);
         setLoading(false);
         return;
       }
@@ -73,7 +146,7 @@ export function LoginForm() {
       router.push(dashboardPathForRole(actualRole));
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setError(err instanceof Error ? err.message : t.genericError);
     } finally {
       setLoading(false);
     }
@@ -112,19 +185,24 @@ export function LoginForm() {
         <ThemeToggle />
       </div>
 
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-zinc-200/90 bg-white/90 p-8 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/70 dark:shadow-2xl">
+      <div
+        lang={lang === "am" ? "am" : "en"}
+        className={cn(
+          "relative z-10 w-full max-w-md rounded-2xl border border-zinc-200/90 bg-white/90 p-8 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/70 dark:shadow-2xl",
+          lang === "am" && "font-[family-name:var(--font-amharic)]",
+        )}
+      >
         <div className="text-center">
           <h1 className="text-2xl font-bold tracking-[0.2em] text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
             ALLQIMEM
           </h1>
           <p className="mt-2 text-[10px] font-medium uppercase tracking-[0.35em] text-foreground/80 dark:text-zinc-300">
-            Unified sign-in
+            {t.unifiedSignIn}
           </p>
         </div>
 
         <p className="mt-6 text-center text-xs text-foreground/85 dark:text-zinc-500">
-          Enter your credentials — you&apos;ll be redirected to the right workspace from your
-          profile.
+          {t.credentialsHint}
         </p>
 
         <form className="mt-8 space-y-5" onSubmit={onSubmit}>
@@ -139,7 +217,7 @@ export function LoginForm() {
 
           <div>
             <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-foreground dark:text-zinc-300">
-              Email
+              {t.email}
             </label>
             <Input
               type="email"
@@ -153,7 +231,7 @@ export function LoginForm() {
           </div>
           <div>
             <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-foreground dark:text-zinc-300">
-              Password
+              {t.password}
             </label>
             <div className="relative">
               <Input
@@ -170,7 +248,7 @@ export function LoginForm() {
                 type="button"
                 onClick={() => setShow(!show)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground/55 hover:text-foreground dark:text-zinc-500 dark:hover:text-zinc-300"
-                aria-label={show ? "Hide password" : "Show password"}
+                aria-label={show ? t.hidePassword : t.showPassword}
               >
                 {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -183,10 +261,10 @@ export function LoginForm() {
                 type="checkbox"
                 className="h-4 w-4 rounded border-zinc-400 bg-white dark:border-zinc-600 dark:bg-zinc-800"
               />
-              Remember me
+              {t.rememberMe}
             </label>
             <button type="button" className="text-gold hover:underline">
-              Forgot password?
+              {t.forgotPassword}
             </button>
           </div>
 
@@ -196,7 +274,7 @@ export function LoginForm() {
             size="lg"
             disabled={loading}
           >
-            {loading ? "Signing in…" : "Sign in"}
+            {loading ? t.signingIn : t.signIn}
           </Button>
         </form>
 
@@ -205,28 +283,23 @@ export function LoginForm() {
             <div className="w-full border-t border-zinc-300 dark:border-zinc-700" />
           </div>
           <div className="relative flex justify-center text-[10px] uppercase tracking-widest text-foreground/55">
-            <span className="bg-white/95 px-3 dark:bg-zinc-900/90">Or continue with</span>
+            <span className="bg-white/95 px-3 dark:bg-zinc-900/90">{t.orContinue}</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            className="flex items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 py-3 text-sm text-foreground hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-white dark:hover:bg-zinc-800"
-            onClick={() => setError("Connect Google in Supabase Auth → Providers, then wire OAuth.")}
-          >
-            <span className="font-semibold text-blue-500 dark:text-blue-400">G</span> Google
-          </button>
-          <button
-            type="button"
-            className="flex items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 py-3 text-sm text-foreground hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-white dark:hover:bg-zinc-800"
-            onClick={() =>
-              setError("Connect Microsoft in Supabase Auth → Providers, then wire OAuth.")
-            }
-          >
-            <span className="text-xs font-bold text-orange-400">■</span> Microsoft
-          </button>
-        </div>
+        <button
+          type="button"
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 py-3 text-sm text-foreground hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-white dark:hover:bg-zinc-800"
+          onClick={() =>
+            setError(
+              lang === "am"
+                ? "Google በ Supabase Auth → Providers ይገናኙ፣ ከዚያ OAuth ያስተካክሉ።"
+                : "Connect Google in Supabase Auth → Providers, then wire OAuth.",
+            )
+          }
+        >
+          <span className="font-semibold text-blue-500 dark:text-blue-400">G</span> {t.google}
+        </button>
 
         <p className="mt-8 text-center text-sm text-foreground/80 dark:text-zinc-500">
           <button
@@ -243,20 +316,20 @@ export function LoginForm() {
           <span className="mx-2 text-foreground/25 dark:text-zinc-600">|</span>
           <button
             type="button"
-            onClick={() => setLang("ar")}
+            onClick={() => setLang("am")}
             className={
-              lang === "ar"
+              lang === "am"
                 ? "text-gold"
                 : "text-foreground/70 hover:text-foreground dark:text-zinc-400 dark:hover:text-white"
             }
           >
-            العربية
+            አማርኛ
           </button>
         </p>
 
         <p className="mt-6 text-center text-xs text-foreground/65 dark:text-zinc-600">
           <Link href="/" className="hover:text-gold">
-            ← Back to welcome
+            {t.backWelcome}
           </Link>
         </p>
       </div>

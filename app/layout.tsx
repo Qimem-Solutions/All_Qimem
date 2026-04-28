@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { DM_Sans, Outfit } from "next/font/google";
+import { DM_Sans, Noto_Sans_Ethiopic, Outfit } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
@@ -12,6 +12,12 @@ const dmSans = DM_Sans({
 const outfit = Outfit({
   variable: "--font-outfit",
   subsets: ["latin"],
+});
+
+const notoEthiopic = Noto_Sans_Ethiopic({
+  variable: "--font-amharic",
+  subsets: ["ethiopic"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -29,7 +35,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${dmSans.variable} ${outfit.variable} h-full antialiased`}
+      className={`${dmSans.variable} ${outfit.variable} ${notoEthiopic.variable} h-full antialiased`}
       style={
         {
           "--font-outfit": "var(--font-outfit)",
