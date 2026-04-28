@@ -47,13 +47,15 @@ export function HotelGallerySettings({ initialUrls }: { initialUrls: string[] })
       <form action={uploadAction} className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="min-w-0 flex-1">
           <label className="mb-1.5 block text-xs font-medium text-muted" htmlFor="gallery-file">
-            Add photo (JPEG, PNG, or WebP · max 5 MB · up to 12 images)
+            Add photos — select multiple for the slideshow (JPEG, PNG, or WebP · max 5 MB each · up to 12
+            total)
           </label>
           <input
             ref={fileRef}
             id="gallery-file"
             name="file"
             type="file"
+            multiple
             accept="image/jpeg,image/png,image/webp"
             className="block w-full cursor-pointer text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-gold/15 file:px-3 file:py-2 file:text-sm file:font-medium file:text-gold"
             disabled={busy}
@@ -61,7 +63,7 @@ export function HotelGallerySettings({ initialUrls }: { initialUrls: string[] })
         </div>
         <Button type="submit" variant="secondary" disabled={busy} className="shrink-0 gap-2">
           <Images className="h-4 w-4" />
-          {uploadPending ? "Uploading…" : "Upload"}
+          {uploadPending ? "Uploading…" : "Upload photos"}
         </Button>
       </form>
       <Message state={upState} />

@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const AUTO_ADVANCE_MS = 2 * 60 * 1000; // 2 minutes per slide
 
 type Props = {
   urls: string[];
@@ -15,6 +17,7 @@ type Props = {
  */
 export function HotelPropertyGalleryCarousel({ urls, label = "Property photos" }: Props) {
   const [index, setIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
 
   const n = urls.length;
   const safeIndex = n <= 0 ? 0 : ((index % n) + n) % n;
@@ -37,6 +40,15 @@ export function HotelPropertyGalleryCarousel({ urls, label = "Property photos" }
     [n],
   );
 
+  const goRef = useRef(go);
+  goRef.current = go;
+
+  useEffect(() => {
+    if (n <= 1 || paused) return;
+    const id = window.setInterval(() => goRef.current(1), AUTO_ADVANCE_MS);
+    return () => window.clearInterval(id);
+  }, [n, paused, safeIndex]);
+
   useEffect(() => {
     if (n <= 1) return;
     function onKey(e: KeyboardEvent) {
@@ -52,61 +64,61 @@ export function HotelPropertyGalleryCarousel({ urls, label = "Property photos" }
   const current = urls[safeIndex];
 
   return (
-    <div className="space-y-3">
-      <h3 className="text-base font-semibold text-foreground">Photo gallery</h3>
-      <div
-        className="relative overflow-hidden rounded-xl border border-border bg-surface-elevated/40"
-        role="region"
-        aria-roledescription="carousel"
-        aria-label={label}
-      >
-        <div className="relative aspect-[16/10] w-full bg-black/20">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={current}
-            alt=""
-            className="h-full w-full object-cover"
-            draggable={false}
-          />
-          {n > 1 ? (
-            <>
-              <button
-                type="button"
-                className="absolute left-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur-sm transition hover:bg-black/60"
-                aria-label="Previous image"
-                onClick={() => go(-1)}
-              >
-                <ChevronLeft className="h-6 w-6" />
-              </button>
-              <button
-                type="button"
-                className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur-sm transition hover:bg-black/60"
-                aria-label="Next image"
-                onClick={() => go(1)}
-              >
-                <ChevronRight className="h-6 w-6" />
-              </button>
-            </>
-          ) : null}
-        </div>
+    <div
+      className="relative w-full overflow-hidden rounded-xl border border-border bg-surface-elevated/40"
+      role="region"
+      aria-roledescription="carousel"
+      aria-label={label}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
+      {/* Full width of the column; height tracks width via aspect ratio */}
+      <div className="relative aspect-[16/9] w-full min-h-[160px] bg-black/20 sm:aspect-[2/1] sm:min-h-[200px]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={current}
+          alt=""
+          className="h-full w-full object-cover object-center"
+          draggable={false}
+        />
         {n > 1 ? (
-          <div className="flex items-center justify-center gap-1.5 border-t border-border py-3">
-            {urls.map((u, i) => (
-              <button
-                key={u}
-                type="button"
-                className={cn(
-                  "h-2 w-2 rounded-full transition",
-                  i === safeIndex ? "bg-gold" : "bg-muted hover:bg-muted/80",
-                )}
-                aria-label={`Go to photo ${i + 1}`}
-                aria-current={i === safeIndex ? "true" : undefined}
-                onClick={() => setIndex(i)}
-              />
-            ))}
-          </div>
+          <>
+            <button
+              type="button"
+              className="absolute left-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur-sm transition hover:bg-black/60 sm:left-3 sm:h-10 sm:w-10"
+              aria-label="Previous image"
+              onClick={() => go(-1)}
+            >
+              <ChevronLeft className="h-5 w-5 sm:h-6 sm:w-6" />
+            </button>
+            <button
+              type="button"
+              className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur-sm transition hover:bg-black/60 sm:right-3 sm:h-10 sm:w-10"
+              aria-label="Next image"
+              onClick={() => go(1)}
+            >
+              <ChevronRight className="h-5 w-5 sm:h-6 sm:w-6" />
+            </button>
+          </>
         ) : null}
       </div>
+      {n > 1 ? (
+        <div className="flex flex-wrap items-center justify-center gap-1.5 border-t border-border px-2 py-2.5">
+          {urls.map((u, i) => (
+            <button
+              key={u}
+              type="button"
+              className={cn(
+                "h-2 w-2 shrink-0 rounded-full transition sm:h-2.5 sm:w-2.5",
+                i === safeIndex ? "bg-gold" : "bg-muted hover:bg-muted/80",
+              )}
+              aria-label={`Go to photo ${i + 1}`}
+              aria-current={i === safeIndex ? "true" : undefined}
+              onClick={() => setIndex(i)}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

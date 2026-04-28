@@ -13,7 +13,7 @@ type Props = {
 };
 
 export function HotelPortfolioView({ portfolio, planLabel, subscriptionStatus, subError }: Props) {
-  const { name, description, cover_image_url, slug } = portfolio;
+  const { name, description, cover_image_url, slug, gallery_urls } = portfolio;
   return (
     <div className="space-y-0">
       <div
@@ -77,7 +77,7 @@ export function HotelPortfolioView({ portfolio, planLabel, subscriptionStatus, s
               </p>
             )}
           </div>
-          <HotelPropertyGalleryCarousel urls={gallery_urls ?? []} />
+          <HotelPropertyGalleryCarousel urls={Array.isArray(gallery_urls) ? gallery_urls : []} />
         </div>
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface-elevated/50 p-5">
           <p className="text-xs font-medium uppercase tracking-wider text-muted">Operations</p>

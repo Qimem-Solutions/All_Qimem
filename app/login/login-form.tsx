@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { dashboardPathForRole } from "@/lib/auth/roles";
 import {
   isKnownDefaultPassword,
+  PASSWORD_CHANGE_DISMISS_KEY,
   PASSWORD_CHANGE_PROMPT_STORAGE_KEY,
 } from "@/lib/constants/passwords";
 import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
@@ -212,6 +213,7 @@ export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
       const needsPasswordChange =
         profile?.must_change_password === true || isKnownDefaultPassword(password);
       try {
+        sessionStorage.removeItem(PASSWORD_CHANGE_DISMISS_KEY);
         if (needsPasswordChange) {
           sessionStorage.setItem(PASSWORD_CHANGE_PROMPT_STORAGE_KEY, "1");
         } else {

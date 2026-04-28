@@ -3,6 +3,7 @@ import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { localDateIso } from "@/lib/format";
 import { getUserContext } from "@/lib/queries/context";
 import type { ServiceAccessLevel } from "@/lib/auth/service-access";
+import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
 
 /** Prefer service role for tenant-scoped HRRM reads so RLS never returns an empty ledger when data exists. */
 async function getSupabaseHrrmRead() {
@@ -525,18 +526,34 @@ function parseTenantGalleryUrls(raw: unknown): string[] {
   return raw.filter((x): x is string => typeof x === "string" && x.length > 0);
 }
 
+const HOTEL_SETTINGS_SELECT_WITH_GALLERY =
+  "name, slug, region, description, cover_image_url, logo_url, gallery_urls, timezone, default_currency, contact_phone, reservations_email, default_check_in_time, default_check_out_time, policies_notes";
+
+const HOTEL_SETTINGS_SELECT_NO_GALLERY =
+  "name, slug, region, description, cover_image_url, logo_url, timezone, default_currency, contact_phone, reservations_email, default_check_in_time, default_check_out_time, policies_notes";
+
 export async function fetchHotelTenantSettings(tenantId: string): Promise<{
   settings: HotelTenantSettings | null;
   error: string | null;
 }> {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let res = await supabase
     .from("tenants")
-    .select(
-      "name, slug, region, description, cover_image_url, logo_url, gallery_urls, timezone, default_currency, contact_phone, reservations_email, default_check_in_time, default_check_out_time, policies_notes",
-    )
+    .select(HOTEL_SETTINGS_SELECT_WITH_GALLERY)
     .eq("id", tenantId)
     .maybeSingle();
+
+  let galleryFallback = false;
+  if (res.error && isMissingDbColumnError(res.error)) {
+    galleryFallback = true;
+    res = await supabase
+      .from("tenants")
+      .select(HOTEL_SETTINGS_SELECT_NO_GALLERY)
+      .eq("id", tenantId)
+      .maybeSingle();
+  }
+
+  const { data, error } = res;
 
   if (error) {
     return { settings: null, error: error.message };
@@ -553,7 +570,7 @@ export async function fetchHotelTenantSettings(tenantId: string): Promise<{
       description: (row.description as string | null) ?? null,
       cover_image_url: (row.cover_image_url as string | null) ?? null,
       logo_url: (row.logo_url as string | null) ?? null,
-      gallery_urls: parseTenantGalleryUrls(row.gallery_urls),
+      gallery_urls: galleryFallback ? [] : parseTenantGalleryUrls(row.gallery_urls),
       timezone: String(row.timezone ?? "UTC"),
       default_currency: String(row.default_currency ?? "ETB"),
       contact_phone: (row.contact_phone as string | null) ?? null,
@@ -580,11 +597,23 @@ export async function fetchTenantPortfolio(tenantId: string): Promise<{
   error: string | null;
 }> {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let res = await supabase
     .from("tenants")
     .select("name, slug, description, cover_image_url, gallery_urls")
     .eq("id", tenantId)
     .maybeSingle();
+
+  let galleryFallback = false;
+  if (res.error && isMissingDbColumnError(res.error)) {
+    galleryFallback = true;
+    res = await supabase
+      .from("tenants")
+      .select("name, slug, description, cover_image_url")
+      .eq("id", tenantId)
+      .maybeSingle();
+  }
+
+  const { data, error } = res;
 
   if (error) {
     return { portfolio: null, error: error.message };
@@ -599,7 +628,7 @@ export async function fetchTenantPortfolio(tenantId: string): Promise<{
       slug: data.slug,
       description: (row.description as string | null) ?? null,
       cover_image_url: (row.cover_image_url as string | null) ?? null,
-      gallery_urls: parseTenantGalleryUrls(row.gallery_urls),
+      gallery_urls: galleryFallback ? [] : parseTenantGalleryUrls(row.gallery_urls),
     },
     error: null,
   };

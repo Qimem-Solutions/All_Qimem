@@ -4,6 +4,12 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getUserContext } from "@/lib/queries/context";
+import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
+
+/** Shown when migrations haven’t been applied to the linked Supabase project. */
+const GALLERY_COLUMN_MISSING_MESSAGE =
+  "Property gallery isn’t available on this database yet. Apply migration 20260430130000_tenant_property_gallery.sql " +
+  "(Supabase Dashboard → SQL Editor, or run `supabase db push` / link CLI), then try again.";
 
 export type GalleryActionResult = { ok: true; message?: string } | { ok: false; error: string };
 
@@ -27,26 +33,50 @@ async function requireHotelAdminTenant() {
   return { tenantId: ctx.tenantId };
 }
 
-export async function uploadHotelGalleryImageAction(formData: FormData): Promise<GalleryActionResult> {
+function validateGalleryFile(file: File): string | null {
+  if (!(file instanceof File) || file.size === 0) {
+    return "Each file must be a non-empty image.";
+  }
+  if (file.size > MAX_BYTES) {
+    return "Each image must be 5 MB or smaller.";
+  }
+  const mime = file.type.toLowerCase();
+  if (!ALLOWED.has(mime)) {
+    return "Use JPEG, PNG, or WebP only.";
+  }
+  if (!extForMime(mime)) {
+    return "Unsupported image type.";
+  }
+  return null;
+}
+
+/** useActionState passes (previousState, formData); `<form action>` may pass FormData as the only argument. */
+function resolveFormData(
+  prevOrFormData: GalleryActionResult | null | FormData,
+  maybeFormData?: FormData,
+): FormData | null {
+  if (prevOrFormData instanceof FormData) return prevOrFormData;
+  if (maybeFormData instanceof FormData) return maybeFormData;
+  return null;
+}
+
+export async function uploadHotelGalleryImageAction(
+  prevOrFormData: GalleryActionResult | null | FormData,
+  maybeFormData?: FormData,
+): Promise<GalleryActionResult> {
+  const fd = resolveFormData(prevOrFormData, maybeFormData);
+  if (!fd) {
+    return { ok: false, error: "Invalid form submission." };
+  }
+
   const { tenantId } = await requireHotelAdminTenant();
   if (!tenantId) {
     return { ok: false, error: "Only hotel administrators can upload gallery images." };
   }
 
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return { ok: false, error: "Choose an image file." };
-  }
-  if (file.size > MAX_BYTES) {
-    return { ok: false, error: "Image must be 5 MB or smaller." };
-  }
-  const mime = file.type.toLowerCase();
-  if (!ALLOWED.has(mime)) {
-    return { ok: false, error: "Use JPEG, PNG, or WebP." };
-  }
-  const ext = extForMime(mime);
-  if (!ext) {
-    return { ok: false, error: "Unsupported image type." };
+  const files = fd.getAll("file").filter((x): x is File => x instanceof File && x.size > 0);
+  if (files.length === 0) {
+    return { ok: false, error: "Choose one or more image files." };
   }
 
   const supabase = await createClient();
@@ -58,42 +88,76 @@ export async function uploadHotelGalleryImageAction(formData: FormData): Promise
     .maybeSingle();
 
   if (fetchErr) {
-    return { ok: false, error: fetchErr.message };
+    return {
+      ok: false,
+      error: isMissingDbColumnError(fetchErr) ? GALLERY_COLUMN_MISSING_MESSAGE : fetchErr.message,
+    };
   }
 
-  const urls = normalizeGalleryUrls(row?.gallery_urls);
-  if (urls.length >= MAX_IMAGES) {
-    return { ok: false, error: `You can upload at most ${MAX_IMAGES} photos. Remove one first.` };
+  let urls = normalizeGalleryUrls(row?.gallery_urls);
+  const uploadedPaths: string[] = [];
+
+  for (const file of files) {
+    const err = validateGalleryFile(file);
+    if (err) {
+      for (const p of uploadedPaths) {
+        await supabase.storage.from(BUCKET).remove([p]);
+      }
+      return { ok: false, error: err };
+    }
+    if (urls.length >= MAX_IMAGES) {
+      for (const p of uploadedPaths) {
+        await supabase.storage.from(BUCKET).remove([p]);
+      }
+      return {
+        ok: false,
+        error: `Gallery is limited to ${MAX_IMAGES} photos. Remove some before adding more.`,
+      };
+    }
+
+    const mime = file.type.toLowerCase();
+    const ext = extForMime(mime)!;
+    const path = `${tenantId}/${randomUUID()}.${ext}`;
+    const buf = Buffer.from(await file.arrayBuffer());
+
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, buf, {
+      contentType: mime,
+      upsert: false,
+    });
+
+    if (upErr) {
+      for (const p of uploadedPaths) {
+        await supabase.storage.from(BUCKET).remove([p]);
+      }
+      return { ok: false, error: upErr.message };
+    }
+
+    uploadedPaths.push(path);
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    urls = [...urls, publicUrl];
   }
 
-  const path = `${tenantId}/${randomUUID()}.${ext}`;
-  const buf = Buffer.from(await file.arrayBuffer());
-
-  const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, buf, {
-    contentType: mime,
-    upsert: false,
-  });
-
-  if (upErr) {
-    return { ok: false, error: upErr.message };
-  }
-
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from(BUCKET).getPublicUrl(path);
-
-  const next = [...urls, publicUrl];
-
-  const { error: updErr } = await supabase.from("tenants").update({ gallery_urls: next }).eq("id", tenantId);
+  const { error: updErr } = await supabase.from("tenants").update({ gallery_urls: urls }).eq("id", tenantId);
 
   if (updErr) {
-    await supabase.storage.from(BUCKET).remove([path]);
-    return { ok: false, error: updErr.message };
+    for (const p of uploadedPaths) {
+      await supabase.storage.from(BUCKET).remove([p]);
+    }
+    return {
+      ok: false,
+      error: isMissingDbColumnError(updErr) ? GALLERY_COLUMN_MISSING_MESSAGE : updErr.message,
+    };
   }
 
   revalidatePath("/hotel/settings");
   revalidatePath("/hotel/dashboard");
-  return { ok: true, message: "Photo added to gallery." };
+  const n = files.length;
+  return {
+    ok: true,
+    message: n === 1 ? "Photo added to gallery." : `${n} photos added to gallery.`,
+  };
 }
 
 function normalizeGalleryUrls(raw: unknown): string[] {
@@ -112,13 +176,21 @@ function parseHotelGalleryStoragePath(publicUrl: string): string | null {
   return publicUrl.slice(i + marker.length).split("?")[0] ?? null;
 }
 
-export async function removeHotelGalleryImageAction(formData: FormData): Promise<GalleryActionResult> {
+export async function removeHotelGalleryImageAction(
+  prevOrFormData: GalleryActionResult | null | FormData,
+  maybeFormData?: FormData,
+): Promise<GalleryActionResult> {
+  const fd = resolveFormData(prevOrFormData, maybeFormData);
+  if (!fd) {
+    return { ok: false, error: "Invalid form submission." };
+  }
+
   const { tenantId } = await requireHotelAdminTenant();
   if (!tenantId) {
     return { ok: false, error: "Not authorized." };
   }
 
-  const url = String(formData.get("url") ?? "").trim();
+  const url = String(fd.get("url") ?? "").trim();
   if (!url) {
     return { ok: false, error: "Missing image URL." };
   }
@@ -132,7 +204,10 @@ export async function removeHotelGalleryImageAction(formData: FormData): Promise
     .maybeSingle();
 
   if (fetchErr) {
-    return { ok: false, error: fetchErr.message };
+    return {
+      ok: false,
+      error: isMissingDbColumnError(fetchErr) ? GALLERY_COLUMN_MISSING_MESSAGE : fetchErr.message,
+    };
   }
 
   const urls = normalizeGalleryUrls(row?.gallery_urls);
@@ -150,7 +225,10 @@ export async function removeHotelGalleryImageAction(formData: FormData): Promise
   const { error: updErr } = await supabase.from("tenants").update({ gallery_urls: next }).eq("id", tenantId);
 
   if (updErr) {
-    return { ok: false, error: updErr.message };
+    return {
+      ok: false,
+      error: isMissingDbColumnError(updErr) ? GALLERY_COLUMN_MISSING_MESSAGE : updErr.message,
+    };
   }
 
   revalidatePath("/hotel/settings");
