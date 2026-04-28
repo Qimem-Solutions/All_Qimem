@@ -6,9 +6,11 @@ import { hrmsNav } from "@/lib/nav/hrms";
 export function HrmsShell({
   children,
   readOnly,
+  userBlock,
 }: {
   children: React.ReactNode;
   readOnly?: boolean;
+  userBlock: { name: string; role: string };
 }) {
   return (
     <AppShellWrapper
@@ -18,7 +20,7 @@ export function HrmsShell({
       }}
       navItems={hrmsNav as unknown as AppShellNavInput}
       propertyTag="Majestic Onyx"
-      userBlock={{ name: "Alex Sterling", role: "General Manager" }}
+      userBlock={userBlock}
       readOnly={readOnly}
     >
       {children}

@@ -157,6 +157,7 @@ export async function createStaffUserAction(formData: FormData): Promise<CreateS
       full_name: fullName,
       global_role: "user",
       tenant_id: tenantId,
+      must_change_password: password === DEFAULT_STAFF_PASSWORD,
     },
     { onConflict: "id" },
   );

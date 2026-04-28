@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { Input } from "@/components/ui/input";
 import { Pencil, Trash2, UserMinus } from "lucide-react";
 import {
@@ -43,43 +44,54 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
   const [photoLoading, setPhotoLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<"inactive" | "delete" | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   if (row.kind !== "employee") {
     return <span className="text-xs text-zinc-600">—</span>;
   }
 
-  async function onInactive() {
-    if (
-      !confirm(
-        `Mark ${row.full_name} as inactive? They will stay in the directory with status "inactive".`,
-      )
-    ) {
-      return;
-    }
-    setError(null);
+  function requestInactive() {
+    setConfirmError(null);
+    setConfirmDialog("inactive");
+  }
+
+  async function executeInactive() {
+    setConfirmLoading(true);
+    setConfirmError(null);
     const res = await setEmployeeInactiveAction({ tenantId, employeeId: row.id });
+    setConfirmLoading(false);
     if (!res.ok) {
-      setError(res.error);
+      setConfirmError(res.error);
       return;
     }
+    setConfirmDialog(null);
     router.refresh();
   }
 
-  async function onDelete() {
-    if (
-      !confirm(
-        `Permanently delete ${row.full_name}? This removes shifts, attendance punches, and related rows for this employee. This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
-    setError(null);
+  function requestDelete() {
+    setConfirmError(null);
+    setConfirmDialog("delete");
+  }
+
+  async function executeDelete() {
+    setConfirmLoading(true);
+    setConfirmError(null);
     const res = await deleteEmployeeRecordAction({ tenantId, employeeId: row.id });
+    setConfirmLoading(false);
     if (!res.ok) {
-      setError(res.error);
+      setConfirmError(res.error);
       return;
     }
+    setConfirmDialog(null);
     router.refresh();
+  }
+
+  function closeConfirm() {
+    if (confirmLoading) return;
+    setConfirmDialog(null);
+    setConfirmError(null);
   }
 
   async function onSaveEdit(e: React.FormEvent<HTMLFormElement>) {
@@ -166,7 +178,7 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
           className="h-8 px-2 text-zinc-400 hover:text-amber-300"
           title="Mark inactive"
           aria-label={`Mark ${row.full_name} inactive`}
-          onClick={onInactive}
+          onClick={requestInactive}
         >
           <UserMinus className="h-4 w-4" />
         </Button>
@@ -177,7 +189,7 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
           className="h-8 px-2 text-zinc-400 hover:text-red-400"
           title="Delete employee"
           aria-label={`Delete ${row.full_name}`}
-          onClick={onDelete}
+          onClick={requestDelete}
         >
           <Trash2 className="h-4 w-4" />
         </Button>
@@ -355,6 +367,29 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
           </div>
         </div>
       ) : null}
+
+      <ConfirmModal
+        open={confirmDialog === "inactive"}
+        title="Mark inactive"
+        description={`Mark ${row.full_name} as inactive? They will stay in the directory with status "inactive".`}
+        confirmLabel="Mark inactive"
+        destructive
+        loading={confirmLoading}
+        error={confirmError}
+        onCancel={closeConfirm}
+        onConfirm={executeInactive}
+      />
+      <ConfirmModal
+        open={confirmDialog === "delete"}
+        title="Delete employee"
+        description={`Permanently delete ${row.full_name}? This removes shifts, attendance punches, and related rows for this employee. This cannot be undone.`}
+        confirmLabel="Delete permanently"
+        destructive
+        loading={confirmLoading}
+        error={confirmError}
+        onCancel={closeConfirm}
+        onConfirm={executeDelete}
+      />
     </div>
   );
 }

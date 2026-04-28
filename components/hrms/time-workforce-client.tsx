@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -45,6 +46,9 @@ export function TimeWorkforceClient({
   const [tab, setTab] = useState<"overview" | "shifts" | "attendance">("overview");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [shiftDeleteId, setShiftDeleteId] = useState<string | null>(null);
+  const [shiftDeleteLoading, setShiftDeleteLoading] = useState(false);
+  const [shiftDeleteError, setShiftDeleteError] = useState<string | null>(null);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -93,15 +97,31 @@ export function TimeWorkforceClient({
     setMsg("Punch recorded.");
   }
 
-  async function removeShift(id: string) {
-    if (!canManage || !confirm("Delete this shift?")) return;
+  function requestRemoveShift(id: string) {
+    if (!canManage) return;
+    setShiftDeleteError(null);
+    setShiftDeleteId(id);
+  }
+
+  async function confirmRemoveShift() {
+    if (!shiftDeleteId || !canManage) return;
+    setShiftDeleteLoading(true);
+    setShiftDeleteError(null);
     setMsg(null);
-    const res = await deleteShiftAction({ tenantId, shiftId: id });
+    const res = await deleteShiftAction({ tenantId, shiftId: shiftDeleteId });
+    setShiftDeleteLoading(false);
     if (!res.ok) {
-      setMsg(res.error);
+      setShiftDeleteError(res.error);
       return;
     }
+    setShiftDeleteId(null);
     router.refresh();
+  }
+
+  function closeShiftDelete() {
+    if (shiftDeleteLoading) return;
+    setShiftDeleteId(null);
+    setShiftDeleteError(null);
   }
 
   const tabs = (
@@ -260,7 +280,7 @@ export function TimeWorkforceClient({
                                 type="button"
                                 variant="ghost"
                                 className="text-xs text-red-400 hover:text-red-300"
-                                onClick={() => removeShift(r.id)}
+                                onClick={() => requestRemoveShift(r.id)}
                               >
                                 Delete
                               </Button>
@@ -368,6 +388,18 @@ export function TimeWorkforceClient({
           )}
         </div>
       )}
+
+      <ConfirmModal
+        open={shiftDeleteId != null}
+        title="Delete shift"
+        description="Delete this shift? This cannot be undone."
+        confirmLabel="Delete shift"
+        destructive
+        loading={shiftDeleteLoading}
+        error={shiftDeleteError}
+        onCancel={closeShiftDelete}
+        onConfirm={confirmRemoveShift}
+      />
     </div>
   );
 }

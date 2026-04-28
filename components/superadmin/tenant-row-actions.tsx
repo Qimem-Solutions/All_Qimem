@@ -28,6 +28,10 @@ export function TenantRowActions({ row: t }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  /** In-app confirmation instead of window.confirm (shows server errors in the same dialog). */
+  const [confirmDialog, setConfirmDialog] = useState<"delete" | "toggle" | null>(null);
+  const [toggleWantInactive, setToggleWantInactive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [name, setName] = useState(t.name);
@@ -136,48 +140,65 @@ export function TenantRowActions({ row: t }: Props) {
     router.refresh();
   }
 
-  async function onToggleInactive() {
+  function onToggleInactive() {
     setMenuOpen(false);
-    const wantInactive = isSubActive;
-    const label = t.name;
-    if (
-      !confirm(
-        wantInactive
-          ? `Mark "${label}" as inactive? Staff may lose access until re-activated.`
-          : `Re-activate "${label}"? Subscription status will be set to active.`,
-      )
-    ) {
-      return;
-    }
+    setToggleWantInactive(isSubActive);
     setError(null);
+    setConfirmDialog("toggle");
+  }
+
+  async function confirmToggleInactive() {
+    setError(null);
+    setConfirmLoading(true);
     const r = await setTenantSubscriptionStatusAction({
       tenantId: t.id,
-      status: wantInactive ? "inactive" : "active",
+      status: toggleWantInactive ? "inactive" : "active",
     });
+    setConfirmLoading(false);
     if (!r.ok) {
       setError(r.error);
       return;
     }
+    setConfirmDialog(null);
     router.refresh();
   }
 
-  async function onDelete() {
+  function onDelete() {
     setMenuOpen(false);
-    if (
-      !confirm(
-        `Delete "${t.name}" permanently? This unlinks all users from this property and removes tenant data where the database allows. This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
     setError(null);
+    setConfirmDialog("delete");
+  }
+
+  async function confirmDelete() {
+    setError(null);
+    setConfirmLoading(true);
     const r = await deleteTenantAction(t.id);
+    setConfirmLoading(false);
     if (!r.ok) {
       setError(r.error);
       return;
     }
+    setConfirmDialog(null);
     router.refresh();
   }
+
+  function closeConfirmDialog() {
+    if (confirmLoading) return;
+    setConfirmDialog(null);
+    setError(null);
+  }
+
+  useEffect(() => {
+    if (!confirmDialog) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && !confirmLoading) {
+        setConfirmDialog(null);
+        setError(null);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirmDialog, confirmLoading]);
 
   return (
     <>
@@ -385,6 +406,69 @@ export function TenantRowActions({ row: t }: Props) {
                   </Button>
                 </div>
               </form>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {typeof document !== "undefined" && confirmDialog
+        ? createPortal(
+            <div
+              className="fixed inset-0 isolate z-[10060] flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={`t-confirm-title-${t.id}`}
+              aria-describedby={`t-confirm-desc-${t.id}`}
+            >
+              <button
+                type="button"
+                className="absolute inset-0 z-0 cursor-default bg-black/60"
+                onClick={closeConfirmDialog}
+                aria-label="Close"
+              />
+              <div
+                className="relative z-10 w-full max-w-md rounded-xl border border-border bg-surface-elevated p-6 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h2 id={`t-confirm-title-${t.id}`} className="text-lg font-semibold text-foreground">
+                  {confirmDialog === "delete" ? "Delete tenant" : "Subscription status"}
+                </h2>
+                <p id={`t-confirm-desc-${t.id}`} className="mt-2 text-sm text-muted">
+                  {confirmDialog === "delete"
+                    ? `Delete “${t.name}” permanently? This unlinks all users from this property and removes tenant data where the database allows. This cannot be undone.`
+                    : toggleWantInactive
+                      ? `Mark “${t.name}” as inactive? Staff may lose access until re-activated.`
+                      : `Re-activate “${t.name}”? Subscription status will be set to active.`}
+                </p>
+                {error ? (
+                  <p className="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
+                    {error}
+                  </p>
+                ) : null}
+                <div className="mt-6 flex justify-end gap-2">
+                  <Button type="button" variant="secondary" onClick={closeConfirmDialog}>
+                    Cancel
+                  </Button>
+                  {confirmDialog === "delete" ? (
+                    <Button
+                      type="button"
+                      className="bg-red-600 text-white hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-500"
+                      disabled={confirmLoading}
+                      onClick={() => void confirmDelete()}
+                    >
+                      {confirmLoading ? "Deleting…" : "Delete permanently"}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      disabled={confirmLoading}
+                      onClick={() => void confirmToggleInactive()}
+                    >
+                      {confirmLoading ? "Applying…" : "Confirm"}
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>,
             document.body,
           )

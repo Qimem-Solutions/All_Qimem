@@ -3,11 +3,17 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, CreditCard, Wallet, ChevronRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import type { TenantReportRow } from "@/lib/queries/superadmin";
-
-const lightOutlineBtn =
-  "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 text-sm font-medium text-stone-800 shadow-sm transition-colors hover:bg-stone-50";
 
 /** Display prices for the billing table (configure to match your catalog). */
 const PLAN_ETB: Record<string, { amount: string; name: string }> = {
@@ -32,38 +38,15 @@ function statusLabel(s: string | null) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function statusPill(s: string | null) {
-  if (!s) {
-    return (
-      <span className="inline-flex rounded-full border border-stone-200 bg-stone-50 px-2.5 py-0.5 text-xs font-medium text-stone-500">
-        No plan
-      </span>
-    );
-  }
+function statusBillingBadge(s: string | null) {
+  if (!s) return <Badge tone="gray">No plan</Badge>;
   const x = s.toLowerCase();
   if (x === "active" || x === "trialing" || x === "trial")
-    return (
-      <span className="inline-flex rounded-full border border-emerald-200/80 bg-emerald-50/90 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
-        {statusLabel(s)}
-      </span>
-    );
-  if (x === "past_due" || x === "unpaid")
-    return (
-      <span className="inline-flex rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-900">
-        {statusLabel(s)}
-      </span>
-    );
+    return <Badge tone="green">{statusLabel(s)}</Badge>;
+  if (x === "past_due" || x === "unpaid") return <Badge tone="orange">{statusLabel(s)}</Badge>;
   if (x === "canceled" || x === "cancelled" || x === "inactive" || x === "suspended" || x === "paused")
-    return (
-      <span className="inline-flex rounded-full border border-stone-200 bg-stone-100 px-2.5 py-0.5 text-xs font-medium text-stone-600">
-        {statusLabel(s)}
-      </span>
-    );
-  return (
-    <span className="inline-flex rounded-full border border-stone-200 bg-stone-50 px-2.5 py-0.5 text-xs font-medium text-stone-700">
-      {statusLabel(s)}
-    </span>
-  );
+    return <Badge tone="red">{statusLabel(s)}</Badge>;
+  return <Badge tone="gray">{statusLabel(s)}</Badge>;
 }
 
 type MonthValue = "all" | string;
@@ -77,6 +60,12 @@ function labelForMonthKey(key: string) {
   if (!y || !m) return key;
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
+
+/** Matches `Button` secondary + md — for `Link` / `<a>` navigation. */
+const secondaryNavClass = cn(
+  "inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-elevated px-4 text-sm font-medium text-foreground transition-colors hover:bg-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold dark:hover:bg-zinc-800",
+  "h-10",
+);
 
 export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]; error: string | null }) {
   const monthOptions = useMemo(() => {
@@ -112,9 +101,7 @@ export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]
   );
 
   const nextRenewal = useMemo(() => {
-    const withEnd = rows
-      .map((r) => r.subPeriodEnd)
-      .filter(Boolean) as string[];
+    const withEnd = rows.map((r) => r.subPeriodEnd).filter(Boolean) as string[];
     if (withEnd.length === 0) return null;
     const times = withEnd
       .map((iso) => new Date(iso).getTime())
@@ -144,112 +131,114 @@ export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]
   }, [rows]);
 
   return (
-    <div className="min-h-0 text-stone-900">
+    <div className="min-h-0 space-y-6">
       {error ? (
-        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <p className="rounded-lg border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-200">
           {error}
         </p>
       ) : null}
 
-      <div className="space-y-4">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="flex flex-col justify-between rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm ring-1 ring-stone-900/[0.04]">
-            <div>
-              <p className="text-lg font-semibold tracking-tight text-stone-900">
-                {topPlan ? (
-                  <>
-                    {topPlan.label}
-                    {topPlan.amount !== "—" ? (
-                      <span className="ml-2 text-sm font-normal text-stone-500">
-                        ETB {topPlan.amount}/mo · most common
-                      </span>
-                    ) : null}
-                  </>
-                ) : (
-                  "Subscriptions"
-                )}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card className="flex flex-col justify-between">
+          <CardHeader className="space-y-0 pb-2">
+            <CardTitle className="text-base">
+              {topPlan ? (
+                <>
+                  {topPlan.label}
+                  {topPlan.amount !== "—" ? (
+                    <span className="ml-2 text-sm font-normal text-muted">
+                      ETB {topPlan.amount}/mo · most common
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                "Subscriptions"
+              )}
+            </CardTitle>
+            <CardDescription className="leading-relaxed">
+              {rows.length} propert{rows.length === 1 ? "y" : "ies"} on the platform;{" "}
+              <span className="font-medium text-foreground">{activeCount} active</span> paid or trialing
+              subscriptions. Align displayed amounts with your Stripe product prices.
+            </CardDescription>
+            {nextRenewal ? (
+              <p className="mt-3 text-sm text-muted">
+                Your next billing milestones include period ends; earliest listed:{" "}
+                <span className="text-foreground">{formatDate(nextRenewal.toISOString())}</span>
               </p>
-              <p className="mt-2 text-sm leading-relaxed text-stone-600">
-                {rows.length} propert{rows.length === 1 ? "y" : "ies"} on the platform;{" "}
-                <span className="font-medium text-stone-800">{activeCount} active</span> paid or trialing
-                subscriptions. Align displayed amounts with your Stripe product prices.
-              </p>
-              {nextRenewal ? (
-                <p className="mt-3 text-sm text-stone-600">
-                  Your next billing milestones include period ends; earliest listed:{" "}
-                  <span className="text-stone-800">{formatDate(nextRenewal.toISOString())}</span>
-                </p>
-              ) : null}
-            </div>
-            <div className="mt-4 flex justify-end">
-              <Link href="/superadmin/subscriptions" className={lightOutlineBtn}>
-                Adjust plans
-                <ChevronRight className="h-4 w-4" />
-              </Link>
-            </div>
-          </div>
+            ) : null}
+          </CardHeader>
+          <CardContent className="flex justify-end pt-2">
+            <Link href="/superadmin/subscriptions" className={secondaryNavClass}>
+              Adjust plans
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          </CardContent>
+        </Card>
 
-          <div className="flex flex-col justify-between rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm ring-1 ring-stone-900/[0.04]">
-            <div>
-              <p className="text-lg font-semibold tracking-tight text-stone-900">Payment</p>
-              <p className="mt-1 text-sm text-stone-500">Update billing and invoices in your provider.</p>
-            </div>
-            <div className="mt-4 flex justify-end">
-              <a
-                href="https://dashboard.stripe.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className={lightOutlineBtn}
-              >
-                <CreditCard className="h-4 w-4" />
-                Manage in Stripe
-                <ExternalLink className="h-3.5 w-3.5 opacity-60" />
-              </a>
-            </div>
-          </div>
-        </div>
+        <Card className="flex flex-col justify-between">
+          <CardHeader className="space-y-1 pb-0">
+            <CardTitle className="text-base">Payment</CardTitle>
+            <CardDescription>Update billing and invoices in your provider.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-end pt-4">
+            <a
+              href="https://dashboard.stripe.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={secondaryNavClass}
+            >
+              <CreditCard className="h-4 w-4" />
+              Manage in Stripe
+              <ExternalLink className="h-3.5 w-3.5 opacity-60" />
+            </a>
+          </CardContent>
+        </Card>
+      </div>
 
-        <div className="overflow-hidden rounded-2xl border border-stone-200/80 bg-white shadow-sm ring-1 ring-stone-900/[0.04]">
-          <div className="flex flex-col gap-1 border-b border-stone-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-base font-semibold text-stone-900">Invoices & subscriptions</h2>
-            <div className="flex items-center gap-2 text-sm text-stone-600">
-              <span className="whitespace-nowrap">Period</span>
-              <select
-                value={filterMonth}
-                onChange={(e) => setFilterMonth(e.target.value as MonthValue)}
-                className="h-9 min-w-[10rem] rounded-lg border border-stone-200 bg-white px-3 text-sm text-stone-800 shadow-sm"
-              >
-                <option value="all">All time</option>
-                {monthOptions.map((k) => (
-                  <option key={k} value={k}>
-                    {labelForMonthKey(k)}
-                  </option>
-                ))}
-              </select>
-            </div>
+      <Card className="overflow-hidden p-0">
+        <CardHeader className="flex flex-col gap-2 border-b border-border bg-background/40 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle className="text-base">Invoices & subscriptions</CardTitle>
+          <div className="flex items-center gap-2 text-sm text-muted">
+            <span className="whitespace-nowrap">Period</span>
+            <select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value as MonthValue)}
+              className="h-9 min-w-[10rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/50"
+            >
+              <option value="all">All time</option>
+              {monthOptions.map((k) => (
+                <option key={k} value={k}>
+                  {labelForMonthKey(k)}
+                </option>
+              ))}
+            </select>
           </div>
+        </CardHeader>
+        <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[800px] text-left text-sm">
               <thead>
-                <tr className="border-b border-stone-100 text-xs font-medium uppercase tracking-wider text-stone-500">
-                  <th className="whitespace-nowrap px-5 py-3.5">Date</th>
-                  <th className="whitespace-nowrap py-3.5 pr-3">Tenant</th>
-                  <th className="min-w-[120px] py-3.5">Description</th>
-                  <th className="whitespace-nowrap py-3.5">Status</th>
-                  <th className="whitespace-nowrap py-3.5 text-right">Amount</th>
-                  <th className="w-[1%] whitespace-nowrap py-3.5 pl-2 pr-5 text-right">Invoice</th>
+                <tr className="border-b border-border text-[10px] uppercase tracking-wider text-zinc-500">
+                  <th className="whitespace-nowrap px-6 py-4 font-medium">Date</th>
+                  <th className="whitespace-nowrap py-4 pr-3 font-medium">Tenant</th>
+                  <th className="min-w-[120px] py-4 font-medium">Description</th>
+                  <th className="whitespace-nowrap py-4 font-medium">Status</th>
+                  <th className="whitespace-nowrap py-4 text-right font-medium">Amount</th>
+                  <th className="w-[1%] whitespace-nowrap py-4 pl-2 pr-6 text-right font-medium">
+                    Invoice
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-100">
+              <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-5 py-12 text-center text-stone-500">
+                    <td colSpan={6} className="px-6 py-12 text-center text-sm text-zinc-500">
                       No tenants yet.
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-5 py-12 text-center text-stone-500">
+                    <td colSpan={6} className="px-6 py-12 text-center text-sm text-zinc-500">
                       No activity in this period. Try &quot;All time&quot; or another month.
                     </td>
                   </tr>
@@ -259,25 +248,26 @@ export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]
                     const { amount, name: planName } = planPrice(r.plan);
                     const showAmount = r.plan && amount !== "—" ? `ETB ${amount}` : "—";
                     return (
-                      <tr key={r.id} className="bg-white text-stone-800 transition-colors hover:bg-stone-50/80">
-                        <td className="whitespace-nowrap px-5 py-3.5 text-stone-700">
+                      <tr
+                        key={r.id}
+                        className="border-b border-border/60 transition-colors hover:bg-white/[0.02]"
+                      >
+                        <td className="whitespace-nowrap px-6 py-4 text-zinc-400">
                           {formatDate(d.toISOString())}
                         </td>
-                        <td className="max-w-[200px] py-3.5 pr-2">
-                          <p className="truncate font-medium text-stone-900">{r.name}</p>
-                          <p className="truncate font-mono text-xs text-stone-400">/{r.slug}</p>
+                        <td className="max-w-[200px] py-4 pr-2">
+                          <p className="truncate font-medium text-white">{r.name}</p>
+                          <p className="truncate font-mono text-xs text-gold">/{r.slug}</p>
                         </td>
-                        <td className="py-3.5 text-stone-600">
-                          {r.plan ? `${planName} plan` : "—"}
-                        </td>
-                        <td className="whitespace-nowrap py-3.5">{statusPill(r.subStatus)}</td>
-                        <td className="whitespace-nowrap py-3.5 text-right tabular-nums text-stone-800">
+                        <td className="py-4 text-zinc-400">{r.plan ? `${planName} plan` : "—"}</td>
+                        <td className="whitespace-nowrap py-4">{statusBillingBadge(r.subStatus)}</td>
+                        <td className="whitespace-nowrap py-4 text-right tabular-nums text-zinc-300">
                           {showAmount}
                         </td>
-                        <td className="whitespace-nowrap py-3.5 pl-2 pr-5 text-right">
+                        <td className="whitespace-nowrap py-4 pl-2 pr-6 text-right">
                           <Link
                             href="/superadmin/subscriptions"
-                            className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-600 underline decoration-stone-300/80 underline-offset-2 hover:text-stone-900"
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-gold/90 underline decoration-gold/30 underline-offset-2 hover:text-gold"
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
                             View
@@ -290,26 +280,25 @@ export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]
               </tbody>
             </table>
           </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        <div className="flex flex-col justify-between gap-4 rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm ring-1 ring-stone-900/[0.04] sm:flex-row sm:items-center">
-          <div>
-            <p className="text-base font-semibold text-stone-900">Tenant offboarding</p>
-            <p className="mt-0.5 text-sm text-stone-500">We&apos;ll be sad to see a partner go.</p>
-            <p className="mt-1 max-w-xl text-xs leading-relaxed text-stone-500">
+      <Card>
+        <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <CardTitle className="text-base">Tenant offboarding</CardTitle>
+            <CardDescription>We&apos;ll be sad to see a partner go.</CardDescription>
+            <p className="max-w-xl text-xs leading-relaxed text-muted">
               Cancellations and data export are handled in tenant management. Coordinate with the property
               before removing a tenant.
             </p>
           </div>
-          <Link
-            href="/superadmin/tenants"
-            className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-stone-300 bg-white px-4 text-sm font-medium text-stone-800 shadow-sm transition-colors hover:bg-stone-50 sm:self-center"
-          >
+          <Link href="/superadmin/tenants" className={cn(secondaryNavClass, "shrink-0")}>
             <Wallet className="h-4 w-4" />
             Manage tenants
           </Link>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

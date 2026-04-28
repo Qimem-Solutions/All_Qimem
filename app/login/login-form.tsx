@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
@@ -9,6 +9,10 @@ import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { createClient } from "@/lib/supabase/client";
 import { dashboardPathForRole } from "@/lib/auth/roles";
+import {
+  isKnownDefaultPassword,
+  PASSWORD_CHANGE_PROMPT_STORAGE_KEY,
+} from "@/lib/constants/passwords";
 import { cn } from "@/lib/utils";
 
 type Lang = "en" | "am";
@@ -81,16 +85,63 @@ const copy: Record<
   },
 };
 
-export function LoginForm() {
+const oauthHint: Record<
+  Lang,
+  Record<
+    "missing_code" | "exchange_failed" | "no_user" | "no_profile",
+    string
+  >
+> = {
+  en: {
+    missing_code: "Sign-in was cancelled or incomplete. Try again.",
+    exchange_failed: "Could not complete Google sign-in.",
+    no_user: "No user returned after Google sign-in.",
+    no_profile:
+      "Your Google account is not provisioned yet. Ask an administrator to create your profile for this platform (same as email/password users).",
+  },
+  am: {
+    missing_code: "መግባት ተቋርጧል ወይም አልተሟላም። እንደገና ይሞክሩ።",
+    exchange_failed: "በ Google መግባት አልተጠናቀቀም።",
+    no_user: "ከ Google በኋላ ተጠቃሚ አልተመለሰም።",
+    no_profile:
+      "የ Google መለያዎ እስካሁን አልተዘጋጀም። የመገለጫ እንዲፈጥርልዎ አስተዳዳሪ ያግኙ።",
+  },
+};
+
+type LoginFormProps = {
+  oauth?: string;
+  oauthDetail?: string;
+};
+
+export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [lang, setLang] = useState<Lang>("en");
   const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const t = copy[lang];
+
+  useEffect(() => {
+    if (!oauth) return;
+    const hints = oauthHint[lang];
+    let msg: string;
+    if (oauth === "missing_code") msg = hints.missing_code;
+    else if (oauth === "exchange_failed") msg = hints.exchange_failed;
+    else if (oauth === "no_user") msg = hints.no_user;
+    else if (oauth === "no_profile") msg = hints.no_profile;
+    else msg = `Sign-in issue (${oauth}).`;
+
+    if (oauth === "exchange_failed" && oauthDetail) {
+      const detail =
+        oauthDetail.length > 400 ? `${oauthDetail.slice(0, 400)}…` : oauthDetail;
+      msg = `${msg} ${detail}`;
+    }
+    setError(msg);
+  }, [oauth, oauthDetail, lang]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -124,7 +175,7 @@ export function LoginForm() {
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("global_role")
+        .select("global_role, must_change_password")
         .eq("id", auth.user.id)
         .maybeSingle();
 
@@ -143,12 +194,52 @@ export function LoginForm() {
         return;
       }
 
+      const needsPasswordChange =
+        profile?.must_change_password === true || isKnownDefaultPassword(password);
+      try {
+        if (needsPasswordChange) {
+          sessionStorage.setItem(PASSWORD_CHANGE_PROMPT_STORAGE_KEY, "1");
+        } else {
+          sessionStorage.removeItem(PASSWORD_CHANGE_PROMPT_STORAGE_KEY);
+        }
+      } catch {
+        /* sessionStorage unavailable */
+      }
+
       router.push(dashboardPathForRole(actualRole));
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : t.genericError);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function signInWithGoogle() {
+    setError(null);
+    setOauthLoading(true);
+    try {
+      const supabase = createClient();
+      const origin =
+        typeof window !== "undefined"
+          ? window.location.origin
+          : (process.env.NEXT_PUBLIC_SITE_URL ?? "");
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${origin}/auth/callback`,
+          queryParams: {
+            prompt: "select_account",
+          },
+        },
+      });
+      if (oauthError) {
+        setError(oauthError.message);
+        setOauthLoading(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Google sign-in failed.");
+      setOauthLoading(false);
     }
   }
 
@@ -272,7 +363,7 @@ export function LoginForm() {
             type="submit"
             className="w-full uppercase tracking-widest"
             size="lg"
-            disabled={loading}
+            disabled={loading || oauthLoading}
           >
             {loading ? t.signingIn : t.signIn}
           </Button>
@@ -289,16 +380,12 @@ export function LoginForm() {
 
         <button
           type="button"
-          className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 py-3 text-sm text-foreground hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-white dark:hover:bg-zinc-800"
-          onClick={() =>
-            setError(
-              lang === "am"
-                ? "Google በ Supabase Auth → Providers ይገናኙ፣ ከዚያ OAuth ያስተካክሉ።"
-                : "Connect Google in Supabase Auth → Providers, then wire OAuth.",
-            )
-          }
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 py-3 text-sm text-foreground hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-white dark:hover:bg-zinc-800"
+          disabled={loading || oauthLoading}
+          onClick={() => void signInWithGoogle()}
         >
-          <span className="font-semibold text-blue-500 dark:text-blue-400">G</span> {t.google}
+          <span className="font-semibold text-blue-500 dark:text-blue-400">G</span>{" "}
+          {oauthLoading ? (lang === "am" ? "በመመለስ ላይ…" : "Redirecting…") : t.google}
         </button>
 
         <p className="mt-8 text-center text-sm text-foreground/80 dark:text-zinc-500">

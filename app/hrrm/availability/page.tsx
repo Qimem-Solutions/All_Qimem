@@ -6,7 +6,7 @@ import { fetchAvailabilityMatrix } from "@/lib/queries/hrrm-availability";
 import { AvailabilityPageClient } from "@/components/hrrm/availability-page-client";
 
 function LoadingFallback() {
-  return <p className="text-sm text-zinc-500">Loading availability…</p>;
+  return <p className="text-sm text-muted">Loading availability…</p>;
 }
 
 export default async function AvailabilityPage({
@@ -19,10 +19,10 @@ export default async function AvailabilityPage({
   if (!ctx.tenantId) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-semibold text-white [font-family:var(--font-outfit),system-ui,sans-serif]">
+        <h1 className="text-2xl font-semibold text-foreground [font-family:var(--font-outfit),system-ui,sans-serif]">
           Availability &amp; inventory
         </h1>
-        <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
+        <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
           Assign a tenant to load availability.
         </p>
       </div>

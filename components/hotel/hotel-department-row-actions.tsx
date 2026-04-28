@@ -7,6 +7,7 @@ import { MoreVertical, Pencil, Power, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
 import {
   deleteDepartmentAction,
   setDepartmentActiveAction,
@@ -29,6 +30,9 @@ export function HotelDepartmentRowActions({ department: d }: Props) {
   const [name, setName] = useState(d.name);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<"toggle" | "delete" | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const isActive = d.is_active !== false;
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -92,42 +96,48 @@ export function HotelDepartmentRowActions({ department: d }: Props) {
     router.refresh();
   }
 
-  async function onToggleActive() {
-    if (
-      !confirm(
-        isActive
-          ? `Mark “${d.name}” as inactive? It will be hidden from new staff assignments.`
-          : `Re-activate “${d.name}”? It will appear in department pickers again.`,
-      )
-    ) {
-      return;
-    }
+  function requestToggleActive() {
+    setConfirmError(null);
     setMenuOpen(false);
-    setError(null);
+    setConfirmDialog("toggle");
+  }
+
+  async function executeToggleActive() {
+    setConfirmLoading(true);
+    setConfirmError(null);
     const r = await setDepartmentActiveAction({ departmentId: d.id, isActive: !isActive });
+    setConfirmLoading(false);
     if (!r.ok) {
-      setError(r.error);
+      setConfirmError(r.error);
       return;
     }
+    setConfirmDialog(null);
     router.refresh();
   }
 
-  async function onDelete() {
-    if (
-      !confirm(
-        `Permanently delete “${d.name}”? This cannot be undone. Works only if no staff and no job postings use it.`,
-      )
-    ) {
-      return;
-    }
+  function requestDelete() {
+    setConfirmError(null);
     setMenuOpen(false);
-    setError(null);
+    setConfirmDialog("delete");
+  }
+
+  async function executeDelete() {
+    setConfirmLoading(true);
+    setConfirmError(null);
     const r = await deleteDepartmentAction({ departmentId: d.id });
+    setConfirmLoading(false);
     if (!r.ok) {
-      setError(r.error);
+      setConfirmError(r.error);
       return;
     }
+    setConfirmDialog(null);
     router.refresh();
+  }
+
+  function closeConfirm() {
+    if (confirmLoading) return;
+    setConfirmDialog(null);
+    setConfirmError(null);
   }
 
   function startEdit() {
@@ -175,7 +185,7 @@ export function HotelDepartmentRowActions({ department: d }: Props) {
                 <Pencil className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                 Edit
               </button>
-              <button type="button" role="menuitem" className={itemClass} onClick={onToggleActive}>
+              <button type="button" role="menuitem" className={itemClass} onClick={requestToggleActive}>
                 <Power className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                 {isActive ? "Deactivate" : "Activate"}
               </button>
@@ -183,7 +193,7 @@ export function HotelDepartmentRowActions({ department: d }: Props) {
                 type="button"
                 role="menuitem"
                 className={cn(itemClass, "text-red-600 dark:text-red-400")}
-                onClick={onDelete}
+                onClick={requestDelete}
               >
                 <Trash2 className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                 Delete
@@ -233,6 +243,33 @@ export function HotelDepartmentRowActions({ department: d }: Props) {
           </form>
         </div>
       ) : null}
+
+      <ConfirmModal
+        open={confirmDialog === "toggle"}
+        title={isActive ? "Deactivate department" : "Activate department"}
+        description={
+          isActive
+            ? `Mark “${d.name}” as inactive? It will be hidden from new staff assignments.`
+            : `Re-activate “${d.name}”? It will appear in department pickers again.`
+        }
+        confirmLabel={isActive ? "Deactivate" : "Activate"}
+        destructive={isActive}
+        loading={confirmLoading}
+        error={confirmError}
+        onCancel={closeConfirm}
+        onConfirm={executeToggleActive}
+      />
+      <ConfirmModal
+        open={confirmDialog === "delete"}
+        title="Delete department"
+        description={`Permanently delete “${d.name}”? This cannot be undone. Works only if no staff and no job postings use it.`}
+        confirmLabel="Delete permanently"
+        destructive
+        loading={confirmLoading}
+        error={confirmError}
+        onCancel={closeConfirm}
+        onConfirm={executeDelete}
+      />
     </>
   );
 }

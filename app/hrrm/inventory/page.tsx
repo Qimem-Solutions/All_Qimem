@@ -14,7 +14,7 @@ export default async function InventoryPage() {
         <h1 className="text-2xl font-semibold text-foreground [font-family:var(--font-outfit),system-ui,sans-serif]">
           Property inventory
         </h1>
-        <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
+        <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
           Assign a tenant to your profile to load inventory.
         </p>
       </div>

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { getUserContext } from "@/lib/queries/context";
 
 export type CreateTenantResult =
@@ -293,9 +294,18 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionOk> {
     return { ok: false, error: "Missing tenant." };
   }
 
-  const supabase = await createClient();
+  let admin: ReturnType<typeof createServiceRoleClient>;
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    return {
+      ok: false,
+      error:
+        "Server missing SUPABASE_SERVICE_ROLE_KEY (required to unlink staff profiles when deleting a tenant).",
+    };
+  }
 
-  const { count: nProfiles, error: cErr } = await supabase
+  const { count: nProfiles, error: cErr } = await admin
     .from("profiles")
     .select("id", { count: "exact", head: true })
     .eq("tenant_id", tenantId);
@@ -303,7 +313,7 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionOk> {
     return { ok: false, error: cErr.message };
   }
   if ((nProfiles ?? 0) > 0) {
-    const { error: uErr } = await supabase
+    const { error: uErr } = await admin
       .from("profiles")
       .update({ tenant_id: null })
       .eq("tenant_id", tenantId);
@@ -312,13 +322,13 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionOk> {
     }
   }
 
-  const { data: inBucket } = await supabase.storage.from("tenant-covers").list(tenantId);
+  const { data: inBucket } = await admin.storage.from("tenant-covers").list(tenantId);
   if (inBucket?.length) {
     const paths = inBucket.map((f) => `${tenantId}/${f.name}`);
-    await supabase.storage.from("tenant-covers").remove(paths);
+    await admin.storage.from("tenant-covers").remove(paths);
   }
 
-  const { error: dErr } = await supabase.from("tenants").delete().eq("id", tenantId);
+  const { error: dErr } = await admin.from("tenants").delete().eq("id", tenantId);
   if (dErr) {
     return { ok: false, error: dErr.message };
   }

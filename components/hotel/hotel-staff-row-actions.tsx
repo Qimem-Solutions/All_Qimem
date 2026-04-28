@@ -7,6 +7,7 @@ import { MoreVertical, Pencil, UserX, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
 import {
   deactivateHotelStaffUserAction,
   deleteHotelStaffUserAction,
@@ -72,6 +73,9 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
   const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<"deactivate" | "delete" | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   const [fullName, setFullName] = useState(user.full_name?.trim() || "");
   const [hrms, setHrms] = useState(user.hrms_access);
@@ -196,42 +200,50 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
     router.refresh();
   }
 
-  async function onDeactivate() {
+  function requestDeactivate() {
     if (isSelf) return;
+    setConfirmError(null);
     setMenuOpen(false);
-    if (
-      !confirm(
-        `Deactivate ${user.full_name ?? "this user"}? Their login will be blocked and employee status set to inactive if applicable.`,
-      )
-    ) {
-      return;
-    }
-    setError(null);
+    setConfirmDialog("deactivate");
+  }
+
+  async function executeDeactivate() {
+    setConfirmLoading(true);
+    setConfirmError(null);
     const r = await deactivateHotelStaffUserAction({ userId: user.id });
+    setConfirmLoading(false);
     if (!r.ok) {
-      setError(r.error);
+      setConfirmError(r.error);
       return;
     }
+    setConfirmDialog(null);
     router.refresh();
   }
 
-  async function onDelete() {
+  function requestDelete() {
     if (isSelf) return;
+    setConfirmError(null);
     setMenuOpen(false);
-    if (
-      !confirm(
-        `Permanently remove ${user.full_name ?? "this user"} from the property? This deletes their login, profile on this tenant, and HR data.`,
-      )
-    ) {
-      return;
-    }
-    setError(null);
+    setConfirmDialog("delete");
+  }
+
+  async function executeDelete() {
+    setConfirmLoading(true);
+    setConfirmError(null);
     const r = await deleteHotelStaffUserAction({ userId: user.id });
+    setConfirmLoading(false);
     if (!r.ok) {
-      setError(r.error);
+      setConfirmError(r.error);
       return;
     }
+    setConfirmDialog(null);
     router.refresh();
+  }
+
+  function closeConfirm() {
+    if (confirmLoading) return;
+    setConfirmDialog(null);
+    setConfirmError(null);
   }
 
   return (
@@ -280,7 +292,7 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
                 className={cn(menuItemClass, isSelf && "cursor-not-allowed opacity-50")}
                 disabled={isSelf}
                 title={isSelf ? "You cannot deactivate yourself here" : undefined}
-                onClick={onDeactivate}
+                onClick={requestDeactivate}
               >
                 <UserX className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                 Deactivate
@@ -291,7 +303,7 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
                 className={cn(menuItemClass, "text-red-600 dark:text-red-400", isSelf && "cursor-not-allowed opacity-50")}
                 disabled={isSelf}
                 title={isSelf ? "You cannot remove yourself here" : undefined}
-                onClick={onDelete}
+                onClick={requestDelete}
               >
                 <Trash2 className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                 Delete
@@ -475,6 +487,29 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
           </form>
         </div>
       ) : null}
+
+      <ConfirmModal
+        open={confirmDialog === "deactivate"}
+        title="Deactivate user"
+        description={`Deactivate ${user.full_name ?? "this user"}? Their login will be blocked and employee status set to inactive if applicable.`}
+        confirmLabel="Deactivate"
+        destructive
+        loading={confirmLoading}
+        error={confirmError}
+        onCancel={closeConfirm}
+        onConfirm={executeDeactivate}
+      />
+      <ConfirmModal
+        open={confirmDialog === "delete"}
+        title="Remove user from property"
+        description={`Permanently remove ${user.full_name ?? "this user"} from the property? This deletes their login, profile on this tenant, and HR data.`}
+        confirmLabel="Remove permanently"
+        destructive
+        loading={confirmLoading}
+        error={confirmError}
+        onCancel={closeConfirm}
+        onConfirm={executeDelete}
+      />
     </>
   );
 }

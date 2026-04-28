@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import { DM_Sans, Noto_Sans_Ethiopic, Outfit } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { PasswordChangeGate } from "@/components/auth/password-change-gate";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -51,7 +52,9 @@ else if(t==='system'){if(window.matchMedia('(prefers-color-scheme: dark)').match
 else{document.documentElement.classList.add('dark');}
 }catch(e){}})();`}
         </Script>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <PasswordChangeGate>{children}</PasswordChangeGate>
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -61,6 +61,8 @@ export function HotelUsersTabs({
   currentUserId: string;
 }) {
   const [tab, setTab] = useState<TabId>("staff");
+  const staffTotal = users.length;
+  const withHrRecord = users.filter((u) => u.employee).length;
 
   return (
     <>
@@ -75,7 +77,7 @@ export function HotelUsersTabs({
               : "border-transparent text-muted hover:text-foreground",
           )}
         >
-          All staff ({users.length})
+          All staff ({staffTotal})
         </button>
         <button
           type="button"
@@ -95,16 +97,49 @@ export function HotelUsersTabs({
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Platform users</CardTitle>
-              <CardDescription>
-                Profiles linked to Supabase Auth for this tenant, with per-suite access.
-              </CardDescription>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1.5">
+                  <CardTitle>Platform users</CardTitle>
+                  <CardDescription>
+                    Profiles linked to Supabase Auth for this tenant, with per-suite access.
+                  </CardDescription>
+                </div>
+                {staffTotal > 0 ? (
+                  <div
+                    className="flex shrink-0 flex-col items-start gap-1 rounded-xl border border-gold/25 bg-gold/5 px-4 py-3 sm:items-end"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+                      All staff
+                    </span>
+                    <span className="text-3xl font-semibold tabular-nums leading-none text-gold">
+                      {staffTotal}
+                    </span>
+                    {withHrRecord < staffTotal ? (
+                      <span className="text-[11px] text-muted">
+                        {withHrRecord} with HR record · {staffTotal - withHrRecord} without
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-muted">Listed in the table below</span>
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </CardHeader>
             <CardContent>
               {users.length === 0 ? (
                 <p className="text-sm text-muted">No users in this tenant yet.</p>
               ) : (
                 <div className="overflow-x-auto">
+                  <p className="mb-4 text-sm text-muted">
+                    Staff list —{" "}
+                    <strong className="font-semibold tabular-nums text-foreground">{staffTotal}</strong>{" "}
+                    <span className="text-foreground/90">
+                      account{staffTotal === 1 ? "" : "s"}
+                    </span>{" "}
+                    total
+                  </p>
                   <table className="w-full min-w-[720px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-border text-xs uppercase tracking-wider text-muted">
@@ -161,7 +196,7 @@ export function HotelUsersTabs({
                 </div>
               )}
               <p className="mt-4 text-xs text-muted">
-                Showing {users.length} platform user{users.length === 1 ? "" : "s"} · Tenant-scoped
+                Showing all {staffTotal} staff account{staffTotal === 1 ? "" : "s"} · Tenant-scoped
                 reads (hotel admins see all profiles in their property).
               </p>
             </CardContent>
@@ -205,7 +240,10 @@ export function HotelUsersTabs({
           <CardHeader>
             <CardTitle>Departments</CardTitle>
             <CardDescription>
-              Departments for this property. Staff can be assigned when you add or edit employees.
+              HR employee totals include people without a login.{" "}
+              <strong className="font-medium text-foreground/90">With login</strong> counts rows linked to a Supabase
+              user — those align with who can appear under{" "}
+              <strong className="font-medium text-foreground/90">All staff</strong> (platform users).
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -218,12 +256,13 @@ export function HotelUsersTabs({
               </p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] text-left text-sm">
+                <table className="w-full min-w-[720px] text-left text-sm">
                   <thead>
                     <tr className="border-b border-border text-xs uppercase tracking-wider text-muted">
                       <th className="pb-3 font-medium">Department</th>
                       <th className="pb-3 font-medium">Visibility</th>
-                      <th className="pb-3 font-medium">Staff count</th>
+                      <th className="pb-3 font-medium">HR employees</th>
+                      <th className="pb-3 font-medium">With login</th>
                       <th className="pb-3 font-medium">ID</th>
                       <th className="pb-3 text-right font-medium">Actions</th>
                     </tr>
@@ -245,6 +284,7 @@ export function HotelUsersTabs({
                             : "Active in pickers"}
                         </td>
                         <td className="py-4 tabular-nums text-foreground/90">{d.employee_count}</td>
+                        <td className="py-4 tabular-nums text-gold/90">{d.linked_login_count}</td>
                         <td className="py-4 font-mono text-xs text-muted">{d.id}</td>
                         <td className="py-4 text-right">
                           <HotelDepartmentRowActions department={d} />
@@ -257,8 +297,8 @@ export function HotelUsersTabs({
             )}
             {!departmentError ? (
               <p className="mt-4 text-xs text-muted">
-                {departments.length} department{departments.length === 1 ? "" : "s"} · Counts are
-                employees with this department in HRMS.
+                {departments.length} department{departments.length === 1 ? "" : "s"} · HR employees =
+                all workforce rows in HRMS; With login = linked to an Auth user (same pool as the staff tab).
               </p>
             ) : null}
           </CardContent>

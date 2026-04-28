@@ -84,6 +84,7 @@ async function main() {
       full_name: "Platform Superadmin",
       global_role: "superadmin",
       tenant_id: null,
+      must_change_password: true,
     },
     { onConflict: "id" },
   );

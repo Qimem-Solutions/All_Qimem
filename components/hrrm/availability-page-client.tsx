@@ -15,7 +15,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
-  Hotel,
   Search,
   TrendingUp,
 } from "lucide-react";
@@ -23,14 +22,19 @@ import {
 type GuestPick = { id: string; full_name: string; phone: string | null };
 
 function infoLabelClass() {
-  return "text-[11px] uppercase tracking-[0.18em] text-zinc-500";
+  return "text-[11px] font-medium uppercase tracking-[0.14em] text-muted";
 }
 
+/** Cell styling that works in light and dark mode */
 function occupancyTone(available: number, physical: number) {
-  if (physical <= 0) return "text-zinc-500 border-white/10 bg-white/[0.03]";
-  if (available <= 0) return "text-rose-200 border-rose-400/20 bg-rose-400/10";
-  if (available === physical) return "text-emerald-100 border-emerald-400/20 bg-emerald-400/10";
-  return "text-amber-100 border-amber-300/20 bg-amber-300/10";
+  if (physical <= 0) return "border-border bg-muted/30 text-muted";
+  if (available <= 0) {
+    return "border-red-500/30 bg-red-500/10 text-red-800 dark:bg-red-950/40 dark:text-red-200";
+  }
+  if (available === physical) {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100";
+  }
+  return "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
 }
 
 export function AvailabilityPageClient({
@@ -176,7 +180,7 @@ export function AvailabilityPageClient({
 
   if (matrix.error) {
     return (
-      <p className="rounded-lg border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-200">
+      <p className="rounded-lg border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-800 dark:text-red-200">
         {matrix.error}
       </p>
     );
@@ -184,64 +188,63 @@ export function AvailabilityPageClient({
 
   return (
     <div className="space-y-8">
-      <section className="overflow-hidden rounded-[30px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.14),transparent_28%),radial-gradient(circle_at_top_right,rgba(251,191,36,0.14),transparent_26%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(17,24,39,0.9))] px-6 py-6 shadow-[0_28px_90px_-45px_rgba(15,23,42,0.95)]">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(380px,0.95fr)] xl:items-end">
+      <section className="rounded-xl border border-border bg-surface-elevated p-6">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(380px,0.95fr)] xl:items-end">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-teal-300/20 bg-teal-300/10 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.22em] text-teal-100/90">
-              <Hotel className="h-3.5 w-3.5" />
-              Availability Board
+            <div className="inline-flex items-center rounded-full border border-gold/40 bg-gold/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gold">
+              Availability board
             </div>
-            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white [font-family:var(--font-outfit),system-ui,sans-serif]">
+            <h1 className="mt-4 text-2xl font-semibold tracking-tight text-foreground [font-family:var(--font-outfit),system-ui,sans-serif] sm:text-3xl">
               Availability by date range and room type
             </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-300">
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
               Review nightly room-type availability across the selected horizon, then move directly into a hold or booking without leaving the page.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+            <div className="rounded-xl border border-border bg-background p-4">
               <p className={infoLabelClass()}>Horizon</p>
-              <p className="mt-3 text-base font-semibold text-white">{formatRangeLabel()}</p>
-              <p className="mt-1 text-xs text-zinc-400">{dayCount} days in view</p>
+              <p className="mt-2 text-base font-semibold text-foreground">{formatRangeLabel()}</p>
+              <p className="mt-1 text-xs text-muted">{dayCount} days in view</p>
             </div>
-            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+            <div className="rounded-xl border border-border bg-background p-4">
               <p className={infoLabelClass()}>Visible types</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{visibleRows.length}</p>
-              <p className="mt-1 text-xs text-zinc-400">{matrix.rows.length} total room types</p>
+              <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">{visibleRows.length}</p>
+              <p className="mt-1 text-xs text-muted">{matrix.rows.length} total room types</p>
             </div>
-            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+            <div className="rounded-xl border border-border bg-background p-4">
               <p className={infoLabelClass()}>Available today</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{totalAvailableToday}</p>
-              <p className="mt-1 text-xs text-zinc-400">{matrix.totalPhysicalRooms} sellable rooms</p>
+              <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">{totalAvailableToday}</p>
+              <p className="mt-1 text-xs text-muted">{matrix.totalPhysicalRooms} sellable rooms</p>
             </div>
-            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+            <div className="rounded-xl border border-border bg-background p-4">
               <p className={infoLabelClass()}>Peak occupancy</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{maxOccupancyPct}%</p>
-              <p className="mt-1 text-xs text-zinc-400">Highest nightly load in this range</p>
+              <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">{maxOccupancyPct}%</p>
+              <p className="mt-1 text-xs text-muted">Highest nightly load in this range</p>
             </div>
           </div>
         </div>
       </section>
 
-      <Card className="overflow-hidden rounded-[30px] border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(15,23,42,0.92))] shadow-[0_28px_90px_-45px_rgba(15,23,42,0.92)]">
-        <CardHeader className="border-b border-white/10 pb-5">
+      <Card className="overflow-hidden p-0">
+        <CardHeader className="border-b border-border pb-5">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <CardTitle className="text-white">Date range filters</CardTitle>
-              <CardDescription className="mt-2 text-zinc-400">
+              <CardTitle>Date range filters</CardTitle>
+              <CardDescription className="mt-2">
                 Shift the horizon, change the number of days, and hide room types you do not want in the matrix.
               </CardDescription>
             </div>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-              <div className="flex items-center gap-2 rounded-[22px] border border-white/10 bg-white/[0.03] px-3 py-3">
-                <Button type="button" variant="secondary" className="h-9 w-9 rounded-xl p-0" aria-label="Previous week" onClick={() => setRange(addDaysToIso(startDate, -7), dayCount)}>
+              <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/20 px-3 py-3">
+                <Button type="button" variant="secondary" className="h-9 w-9 shrink-0 p-0" aria-label="Previous week" onClick={() => setRange(addDaysToIso(startDate, -7), dayCount)}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <div className="min-w-[10rem] text-center">
                   <p className={infoLabelClass()}>Current range</p>
-                  <p className="mt-1 text-sm font-medium text-white">{formatRangeLabel()}</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{formatRangeLabel()}</p>
                 </div>
-                <Button type="button" variant="secondary" className="h-9 w-9 rounded-xl p-0" aria-label="Next week" onClick={() => setRange(addDaysToIso(startDate, 7), dayCount)}>
+                <Button type="button" variant="secondary" className="h-9 w-9 shrink-0 p-0" aria-label="Next week" onClick={() => setRange(addDaysToIso(startDate, 7), dayCount)}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -249,14 +252,10 @@ export function AvailabilityPageClient({
               <div className="grid gap-3 sm:grid-cols-[10rem_6rem_auto]">
                 <div>
                   <label className={infoLabelClass()}>From</label>
-                  <Input
-                    type="date"
-                    className="mt-1.5 border-white/10 bg-slate-950/40"
-                    value={startDate}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v) setRange(v, dayCount);
-                    }}
+                  <Input type="date" className="mt-1.5" value={startDate} onChange={(e) => {
+                    const v = e.target.value;
+                    if (v) setRange(v, dayCount);
+                  }}
                   />
                 </div>
                 <div>
@@ -265,7 +264,7 @@ export function AvailabilityPageClient({
                     type="number"
                     min={3}
                     max={14}
-                    className="mt-1.5 border-white/10 bg-slate-950/40"
+                    className="mt-1.5"
                     value={dayCount}
                     onChange={(e) => {
                       const n = Math.min(14, Math.max(3, parseInt(e.target.value, 10) || 7));
@@ -275,17 +274,17 @@ export function AvailabilityPageClient({
                 </div>
                 <div className="relative">
                   <label className={infoLabelClass()}>Room types</label>
-                  <Button type="button" variant="secondary" className="mt-1.5 h-10 rounded-xl border border-white/10 bg-white/[0.04] px-4 hover:bg-white/[0.08]" onClick={() => setTypeFilterOpen((o) => !o)}>
+                  <Button type="button" variant="secondary" className="mt-1.5 h-10 gap-2" onClick={() => setTypeFilterOpen((o) => !o)}>
                     <Filter className="h-4 w-4" />
                     Filter
                   </Button>
                   {typeFilterOpen ? (
-                    <div className="absolute right-0 z-20 mt-2 w-72 rounded-[22px] border border-white/10 bg-surface-elevated/95 p-4 shadow-2xl backdrop-blur-xl" role="dialog" aria-label="Filter room types">
-                      <p className="mb-3 text-xs text-zinc-500">Show or hide room types in the grid.</p>
+                    <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-border bg-surface-elevated p-4 shadow-lg" role="dialog" aria-label="Filter room types">
+                      <p className="mb-3 text-xs text-muted">Show or hide room types in the grid.</p>
                       <ul className="max-h-56 space-y-2 overflow-y-auto">
                         {matrix.rows.map((r) => (
                           <li key={r.roomTypeId}>
-                            <label className="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2 text-sm text-zinc-200 hover:bg-white/[0.04]">
+                            <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm text-foreground hover:bg-muted/50">
                               <input
                                 type="checkbox"
                                 className="rounded border-border"
@@ -300,7 +299,7 @@ export function AvailabilityPageClient({
                                 }}
                               />
                               <span className="flex-1">{r.roomTypeName}</span>
-                              <span className="text-xs text-zinc-500">{r.capacity ?? "—"} cap</span>
+                              <span className="text-xs text-muted">{r.capacity ?? "—"} cap</span>
                             </label>
                           </li>
                         ))}
@@ -315,32 +314,40 @@ export function AvailabilityPageClient({
         <CardContent className="p-6">
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.8fr)]">
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-medium text-white">Availability grid</p>
-                  <p className="text-xs text-zinc-500">Click any cell to use that room type and start night in the booking panel.</p>
+                  <p className="text-sm font-medium text-foreground">Availability grid</p>
+                  <p className="text-xs text-muted">Click any cell to use that room type and start night in the booking panel.</p>
                 </div>
                 <div className="flex flex-wrap gap-2 text-[11px]">
-                  <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-emerald-100">Ready</span>
-                  <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-amber-100">Low</span>
-                  <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-1 text-rose-100">Full</span>
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-emerald-800 dark:text-emerald-200">
+                    Ready
+                  </span>
+                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-amber-900 dark:text-amber-100">
+                    Low
+                  </span>
+                  <span className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-red-800 dark:text-red-200">
+                    Full
+                  </span>
                 </div>
               </div>
 
               {visibleRows.length === 0 ? (
-                <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.02] p-8 text-center text-sm text-zinc-500">
+                <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted">
                   No room types to show. Adjust the filters or add room types in inventory.
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-[26px] border border-white/10 bg-white/[0.02]">
+                <div className="overflow-x-auto rounded-xl border border-border">
                   <table className="w-full min-w-[900px] text-center text-xs">
                     <thead>
-                      <tr className="border-b border-white/10 bg-white/[0.03] text-zinc-500">
-                        <th className="sticky left-0 z-10 bg-[rgba(15,23,42,0.96)] px-4 py-4 text-left text-[10px] uppercase tracking-[0.18em]">Room type</th>
+                      <tr className="border-b border-border bg-muted/30 text-muted">
+                        <th className="sticky left-0 z-10 bg-surface-elevated px-4 py-4 text-left text-[10px] font-medium uppercase tracking-[0.14em]">
+                          Room type
+                        </th>
                         {matrix.days.map((d) => {
                           const isToday = d.date === todayIso;
                           return (
-                            <th key={d.date} className={cn("px-1 py-4 text-[10px] uppercase tracking-[0.18em]", isToday && "bg-gold/10 text-gold")}>
+                            <th key={d.date} className={cn("px-1 py-4 text-[10px] font-medium uppercase tracking-[0.14em]", isToday && "bg-gold/15 text-gold")}>
                               {d.label}
                             </th>
                           );
@@ -349,11 +356,12 @@ export function AvailabilityPageClient({
                     </thead>
                     <tbody>
                       {visibleRows.map((row) => (
-                        <tr key={row.roomTypeId} className="border-b border-white/10 last:border-b-0">
-                          <td className="sticky left-0 z-10 bg-[rgba(15,23,42,0.96)] px-4 py-4 text-left">
-                            <p className="text-sm font-medium text-white">{row.roomTypeName}</p>
-                            <p className="mt-1 text-[11px] text-zinc-500">
-                              {row.capacity != null ? `${row.capacity} guests` : "No cap"} · {row.nightlyCents ? formatBirrCents(row.nightlyCents) : "No price"}
+                        <tr key={row.roomTypeId} className="border-b border-border last:border-b-0">
+                          <td className="sticky left-0 z-10 bg-background px-4 py-4 text-left shadow-[2px_0_8px_-4px_rgba(0,0,0,0.08)] dark:bg-background dark:shadow-[2px_0_8px_-4px_rgba(0,0,0,0.4)]">
+                            <p className="text-sm font-medium text-foreground">{row.roomTypeName}</p>
+                            <p className="mt-1 text-[11px] text-muted">
+                              {row.capacity != null ? `${row.capacity} guests` : "No cap"} ·{" "}
+                              {row.nightlyCents ? formatBirrCents(row.nightlyCents) : "No price"}
                             </p>
                           </td>
                           {row.cells.map((cell) => {
@@ -361,30 +369,22 @@ export function AvailabilityPageClient({
                             const isSelected = selectedTypeId === row.roomTypeId && selectedNight === cell.date;
                             const low = cell.physical > 0 && cell.available > 0 && cell.available <= Math.max(1, Math.floor(cell.physical / 3));
                             return (
-                              <td
-                                key={cell.date}
-                                className={cn(
-                                  "px-1 py-3",
-                                  cell.date === todayIso && "bg-gold/5",
-                                )}
-                              >
+                              <td key={cell.date} className={cn("px-1 py-3", cell.date === todayIso && "bg-gold/5")}>
                                 <button
                                   type="button"
                                   className={cn(
-                                    "w-full rounded-2xl border px-2 py-3 text-left transition hover:scale-[0.99] hover:bg-white/[0.07]",
+                                    "w-full rounded-xl border px-2 py-3 text-left transition hover:bg-muted/40",
                                     occupancyTone(cell.available, cell.physical),
-                                    isSelected && "ring-1 ring-gold/60",
+                                    isSelected && "ring-2 ring-gold ring-offset-2 ring-offset-background",
                                   )}
                                   onClick={() => onCellClick(row, cell.date)}
                                   title="Use this room type and night for quick reservation"
                                 >
-                                  <span className="block text-[11px] font-medium">{cell.available}/{cell.physical}</span>
-                                  <span className="mt-1 block text-[10px] opacity-80">
-                                    {cell.priceCents > 0 ? formatBirrCents(cell.priceCents) : "—"}
+                                  <span className="block text-[11px] font-medium">
+                                    {cell.available}/{cell.physical}
                                   </span>
-                                  <span className="mt-1 block text-[10px] opacity-80">
-                                    {soldOut ? "Full" : low ? "Low" : "Open"}
-                                  </span>
+                                  <span className="mt-1 block text-[10px] opacity-90">{cell.priceCents > 0 ? formatBirrCents(cell.priceCents) : "—"}</span>
+                                  <span className="mt-1 block text-[10px] opacity-90">{soldOut ? "Full" : low ? "Low" : "Open"}</span>
                                 </button>
                               </td>
                             );
@@ -397,20 +397,22 @@ export function AvailabilityPageClient({
               )}
             </div>
 
-            <Card className="rounded-[26px] border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(15,23,42,0.55))]">
+            <Card>
               <CardHeader>
-                <CardTitle className="text-white">Quick reservation</CardTitle>
-                <CardDescription className="text-zinc-400">Build a booking directly from the availability view.</CardDescription>
+                <CardTitle>Quick reservation</CardTitle>
+                <CardDescription>Build a booking directly from the availability view.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {formError ? <p className="rounded-2xl border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-200">{formError}</p> : null}
+                {formError ? (
+                  <p className="rounded-lg border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-800 dark:text-red-200">{formError}</p>
+                ) : null}
 
                 <div className="relative">
                   <label className={infoLabelClass()}>Guest lookup</label>
                   <div className="relative mt-1.5">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                     <Input
-                      className="border-white/10 bg-slate-950/40 pl-10"
+                      className="pl-10"
                       placeholder="Name, phone, or guest ID"
                       value={guestQuery}
                       onChange={(e) => {
@@ -421,18 +423,18 @@ export function AvailabilityPageClient({
                     />
                   </div>
                   {guest ? (
-                    <p className="mt-2 text-xs text-teal-100">
+                    <p className="mt-2 text-xs text-gold">
                       Selected: {guest.full_name}
                       {guest.phone ? ` · ${guest.phone}` : ""}
                     </p>
                   ) : null}
                   {guestOpen && guestHits.length > 0 ? (
-                    <ul className="absolute left-0 right-0 z-10 mt-2 max-h-44 overflow-y-auto rounded-[18px] border border-white/10 bg-surface-elevated/95 py-1 text-left text-sm shadow-md backdrop-blur-xl" role="listbox">
+                    <ul className="absolute left-0 right-0 z-10 mt-2 max-h-44 overflow-y-auto rounded-xl border border-border bg-surface-elevated py-1 text-left text-sm shadow-md" role="listbox">
                       {guestHits.map((g) => (
                         <li key={g.id}>
                           <button
                             type="button"
-                            className="w-full px-3 py-2 text-left text-foreground hover:bg-foreground/5"
+                            className="w-full px-3 py-2 text-left text-foreground hover:bg-muted/50"
                             onClick={() => {
                               setGuest(g);
                               setGuestQuery(g.full_name);
@@ -440,7 +442,7 @@ export function AvailabilityPageClient({
                             }}
                           >
                             {g.full_name}
-                            {g.phone ? <span className="ml-1 text-zinc-500">({g.phone})</span> : null}
+                            {g.phone ? <span className="ml-1 text-muted">({g.phone})</span> : null}
                           </button>
                         </li>
                       ))}
@@ -451,32 +453,32 @@ export function AvailabilityPageClient({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className={infoLabelClass()}>Check-in</label>
-                    <Input className="mt-1.5 border-white/10 bg-slate-950/40" type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
+                    <Input className="mt-1.5" type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
                   </div>
                   <div>
                     <label className={infoLabelClass()}>Check-out</label>
-                    <Input className="mt-1.5 border-white/10 bg-slate-950/40" type="date" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
+                    <Input className="mt-1.5" type="date" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
                   </div>
                 </div>
 
-                <div className="rounded-[22px] border border-white/10 bg-slate-950/30 p-4">
+                <div className="rounded-xl border border-border bg-muted/30 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className={infoLabelClass()}>Selected room type</p>
-                      <p className="mt-2 text-base font-medium text-white">
+                      <p className="mt-2 text-base font-medium text-foreground">
                         {selectedRow ? selectedRow.roomTypeName : "Select a room type from the grid"}
                       </p>
                     </div>
-                    <CalendarRange className="mt-1 h-4 w-4 text-zinc-500" />
+                    <CalendarRange className="mt-1 h-4 w-4 text-muted" />
                   </div>
-                  <p className="mt-2 text-xs text-zinc-500">
+                  <p className="mt-2 text-xs text-muted">
                     {nights > 0 ? `${nights} night${nights === 1 ? "" : "s"}` : "—"} · {adults} adult{adults === 1 ? "" : "s"} capacity guide
                   </p>
                 </div>
 
                 {selectedRow && totalCents > 0 ? (
-                  <div className="rounded-[22px] border border-amber-300/15 bg-amber-300/10 p-4">
-                    <div className="space-y-2 text-sm text-zinc-200">
+                  <div className="rounded-xl border border-gold/30 bg-gold/10 p-4 dark:bg-gold/5">
+                    <div className="space-y-2 text-sm text-foreground">
                       <div className="flex justify-between">
                         <span>Nightly price</span>
                         <span>{formatBirrCents(nightlyCents)}</span>
@@ -485,38 +487,29 @@ export function AvailabilityPageClient({
                         <span>Nights</span>
                         <span>{nights}</span>
                       </div>
-                      <div className="flex justify-between border-t border-amber-300/20 pt-2 text-lg font-semibold text-amber-100">
+                      <div className="flex justify-between border-t border-gold/25 pt-2 text-lg font-semibold text-gold">
                         <span>Total</span>
                         <span>{formatBirrCents(totalCents)}</span>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-zinc-500">Choose a priced room type and a valid date range to see the total stay amount.</p>
+                  <p className="text-xs text-muted">Choose a priced room type and a valid date range to see the total stay amount.</p>
                 )}
 
                 <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    variant="ghost"
-                    className="rounded-2xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"
-                    type="button"
-                    disabled={!canManage || saving}
-                    onClick={() => void onSubmit("hold")}
-                  >
+                  <Button variant="outline" type="button" disabled={!canManage || saving} onClick={() => void onSubmit("hold")}>
                     Draft hold
                   </Button>
-                  <Button
-                    className="rounded-2xl"
-                    type="button"
-                    disabled={!canManage || saving}
-                    onClick={() => void onSubmit("confirm")}
-                  >
+                  <Button type="button" disabled={!canManage || saving} onClick={() => void onSubmit("confirm")}>
                     {saving ? "Saving…" : "Confirm booking"}
                   </Button>
                 </div>
 
                 {!canManage ? (
-                  <p className="text-xs text-amber-200/80">View-only: ask an administrator for manage access to create reservations.</p>
+                  <p className="text-xs text-amber-800 dark:text-amber-200/90">
+                    View-only: ask an administrator for manage access to create reservations.
+                  </p>
                 ) : null}
               </CardContent>
             </Card>
@@ -525,23 +518,23 @@ export function AvailabilityPageClient({
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="rounded-[26px] border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(15,23,42,0.92))]">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-base text-white">Occupancy forecast</CardTitle>
-            <CardDescription className="text-zinc-400">Booked room-nights divided by total sellable rooms for each day in view.</CardDescription>
+            <CardTitle className="text-base">Occupancy forecast</CardTitle>
+            <CardDescription>Booked room-nights divided by total sellable rooms for each day in view.</CardDescription>
           </CardHeader>
           <CardContent>
             {matrix.occupancyByDate.length === 0 ? (
-              <p className="text-sm text-zinc-500">No data.</p>
+              <p className="text-sm text-muted">No data.</p>
             ) : (
               <div className="flex h-36 items-end gap-2">
                 {matrix.occupancyByDate.map((pct, i) => (
                   <div key={matrix.days[i]!.date} className="group flex flex-1 flex-col items-center">
                     <div
-                      className={cn("w-full rounded-t-xl", matrix.days[i]!.date === todayIso ? "bg-gold/80" : "bg-zinc-700/70")}
+                      className={cn("w-full rounded-t-md", matrix.days[i]!.date === todayIso ? "bg-gold" : "bg-muted")}
                       style={{ height: `${Math.max(8, Math.round(pct * 100))}%` }}
                     />
-                    <span className="mt-2 text-[10px] text-zinc-500">{Math.round(pct * 100)}%</span>
+                    <span className="mt-2 text-[10px] text-muted">{Math.round(pct * 100)}%</span>
                   </div>
                 ))}
               </div>
@@ -549,29 +542,29 @@ export function AvailabilityPageClient({
           </CardContent>
         </Card>
 
-        <Card className="rounded-[26px] border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(15,23,42,0.92))]">
+        <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base text-white">
-              <TrendingUp className="h-4 w-4 text-teal-200" />
+            <CardTitle className="flex items-center gap-2 text-base">
+              <TrendingUp className="h-4 w-4 text-gold" />
               Average daily rate
             </CardTitle>
-            <CardDescription className="text-zinc-400">Weighted by room count per type and the current room type pricing.</CardDescription>
+            <CardDescription>Weighted by room count per type and the current room type pricing.</CardDescription>
           </CardHeader>
           <CardContent>
             {matrix.adrCents != null && matrix.adrCents > 0 ? (
               <>
-                <p className="text-3xl font-semibold text-white">{formatBirrCents(matrix.adrCents)}</p>
-                <div className="mt-5 space-y-2 text-sm text-zinc-400">
+                <p className="text-3xl font-semibold text-foreground">{formatBirrCents(matrix.adrCents)}</p>
+                <div className="mt-5 space-y-2 text-sm text-muted">
                   {matrix.rows.slice(0, 6).map((r) => (
-                    <div key={r.roomTypeId} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
-                      <span className="truncate pr-2">{r.roomTypeName}</span>
-                      <span>{r.nightlyCents ? formatBirrCents(r.nightlyCents) : "—"}</span>
+                    <div key={r.roomTypeId} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2">
+                      <span className="truncate pr-2 text-foreground">{r.roomTypeName}</span>
+                      <span className="tabular-nums text-foreground">{r.nightlyCents ? formatBirrCents(r.nightlyCents) : "—"}</span>
                     </div>
                   ))}
                 </div>
               </>
             ) : (
-              <div className="rounded-[20px] border border-dashed border-white/10 bg-white/[0.02] p-5 text-sm text-zinc-500">
+              <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-sm text-muted">
                 Add room type prices in Rates &amp; pricing to see ADR here.
               </div>
             )}

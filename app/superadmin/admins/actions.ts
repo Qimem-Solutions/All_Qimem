@@ -94,6 +94,7 @@ export async function createHotelAdminAction(input: {
       full_name: fullName,
       global_role: "hotel_admin",
       tenant_id: tenantId,
+      must_change_password: password === DEFAULT_HOTEL_ADMIN_PASSWORD,
     },
     { onConflict: "id" },
   );

@@ -70,6 +70,7 @@ export default async function HotelDashboardPage({
     slug: "—",
     description: null,
     cover_image_url: null,
+    gallery_urls: [],
   };
 
   return (

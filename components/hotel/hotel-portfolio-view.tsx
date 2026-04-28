@@ -3,6 +3,7 @@ import { ArrowRight, LayoutGrid } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { TenantPortfolio } from "@/lib/queries/tenant-data";
+import { HotelPropertyGalleryCarousel } from "@/components/hotel/hotel-property-gallery-carousel";
 
 type Props = {
   portfolio: TenantPortfolio;
@@ -62,18 +63,21 @@ export function HotelPortfolioView({ portfolio, planLabel, subscriptionStatus, s
       </div>
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[1fr,280px]">
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold text-foreground">About this property</h2>
-          {description?.trim() ? (
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted sm:text-base">
-              {description.trim()}
-            </p>
-          ) : (
-            <p className="text-sm text-muted">
-              Add a short description in the superadmin console so guests and staff see it here. It
-              is stored on your tenant and shown as your public portfolio.
-            </p>
-          )}
+        <div className="space-y-8">
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold text-foreground">About this property</h2>
+            {description?.trim() ? (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted sm:text-base">
+                {description.trim()}
+              </p>
+            ) : (
+              <p className="text-sm text-muted">
+                Add a short description under Property settings → Branding so it appears here. Images
+                below come from Settings → Property gallery.
+              </p>
+            )}
+          </div>
+          <HotelPropertyGalleryCarousel urls={gallery_urls ?? []} />
         </div>
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface-elevated/50 p-5">
           <p className="text-xs font-medium uppercase tracking-wider text-muted">Operations</p>

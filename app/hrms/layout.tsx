@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { HrmsShell } from "@/components/layout/hrms-shell";
 import { getUserContext } from "@/lib/queries/context";
 import { getServiceAccessForLayout } from "@/lib/auth/service-access";
+import { displayNameFromProfile, globalRoleLabel } from "@/lib/auth/user-display";
 
 export default async function HrmsLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getUserContext();
@@ -13,5 +14,15 @@ export default async function HrmsLayout({ children }: { children: React.ReactNo
         encodeURIComponent("No access to HRMS. Ask your hotel admin to grant access."),
     );
   }
-  return <HrmsShell readOnly={access === "view"}>{children}</HrmsShell>;
+
+  const userBlock = {
+    name: displayNameFromProfile(ctx.fullName, ctx.email),
+    role: globalRoleLabel(ctx.globalRole),
+  };
+
+  return (
+    <HrmsShell readOnly={access === "view"} userBlock={userBlock}>
+      {children}
+    </HrmsShell>
+  );
 }

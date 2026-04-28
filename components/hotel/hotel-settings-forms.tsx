@@ -21,6 +21,7 @@ import {
   updateHotelContactSettings,
   type HotelSettingsActionState,
 } from "@/lib/actions/hotel-settings";
+import { HotelGallerySettings } from "@/components/hotel/hotel-gallery-settings";
 
 const control =
   "flex w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-gold/60";
@@ -242,6 +243,19 @@ export function HotelSettingsForms({ settings }: { settings: HotelTenantSettings
               <FormMessage state={brandState} />
             </div>
           </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <SectionHeader
+            icon={ImageIcon}
+            title="Property gallery"
+            description="Photos shown on your Portfolio page below “About this property” with a slideshow."
+          />
+        </CardHeader>
+        <CardContent>
+          <HotelGallerySettings initialUrls={settings.gallery_urls} />
         </CardContent>
       </Card>
 

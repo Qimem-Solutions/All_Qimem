@@ -1,7 +1,12 @@
 import { LoginForm } from "./login-form";
 
-export const dynamic = "force-static";
+type Props = {
+  searchParams: Promise<{ oauth?: string; detail?: string }>;
+};
 
-export default function LoginPage() {
-  return <LoginForm />;
+export default async function LoginPage(props: Props) {
+  const searchParams = await props.searchParams;
+  return (
+    <LoginForm oauth={searchParams.oauth} oauthDetail={searchParams.detail} />
+  );
 }

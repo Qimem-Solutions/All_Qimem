@@ -69,3 +69,104 @@ body {
 .dark * {
   scrollbar-color: #3f3f46 transparent;
 }
+
+/* Welcome page motion */
+@keyframes welcome-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(1.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes welcome-glow-float {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  40% {
+    transform: translate(4%, -6%) scale(1.04);
+  }
+  70% {
+    transform: translate(-3%, 5%) scale(0.97);
+  }
+}
+
+@keyframes welcome-grid-shift {
+  0% {
+    background-position: 0 0, 0 0;
+  }
+  100% {
+    background-position: 64px 64px, 64px 64px;
+  }
+}
+
+@keyframes welcome-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.welcome-animate-fade-up {
+  animation: welcome-fade-up 0.85s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.welcome-animate-fade-in {
+  animation: welcome-fade-in 0.7s ease-out both;
+}
+
+.welcome-delay-1 {
+  animation-delay: 0.08s;
+}
+.welcome-delay-2 {
+  animation-delay: 0.16s;
+}
+.welcome-delay-3 {
+  animation-delay: 0.26s;
+}
+.welcome-delay-4 {
+  animation-delay: 0.36s;
+}
+.welcome-delay-5 {
+  animation-delay: 0.46s;
+}
+.welcome-delay-6 {
+  animation-delay: 0.56s;
+}
+.welcome-delay-7 {
+  animation-delay: 0.66s;
+}
+
+.welcome-glow-left {
+  animation: welcome-glow-float 22s ease-in-out infinite;
+}
+
+.welcome-glow-right {
+  animation: welcome-glow-float 28s ease-in-out infinite reverse;
+}
+
+.welcome-grid-motion {
+  animation: welcome-grid-shift 48s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-animate-fade-up,
+  .welcome-animate-fade-in {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .welcome-glow-left,
+  .welcome-glow-right {
+    animation: none !important;
+  }
+  .welcome-grid-motion {
+    animation: none !important;
+  }
+}

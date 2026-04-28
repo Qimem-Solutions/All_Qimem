@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   CircleAlert,
   Download,
-  Filter,
   LayoutGrid,
   List,
   MoreVertical,
@@ -23,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { formatMoneyCents } from "@/lib/format";
 import { getFloatingMenuStyle } from "@/components/hotel/floating-menu-position";
 import type { RoomInventoryRow, RoomTypeRow } from "@/lib/queries/hrrm-inventory";
@@ -71,31 +71,26 @@ function RoomStatusStat({
   value,
   helper,
   dotClassName,
-  className,
   icon,
 }: {
   label: string;
   value: number;
   helper: string;
   dotClassName: string;
-  className: string;
   icon: ReactNode;
 }) {
   return (
-    <div className={cn("relative overflow-hidden rounded-2xl border px-4 py-4 shadow-sm", className)}>
-      <div className="absolute inset-x-0 top-0 h-px bg-white/30" />
+    <div className="rounded-xl border border-border bg-background p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/10 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-muted/90 backdrop-blur-sm">
-            <span className={cn("h-2 w-2 rounded-full", dotClassName)} />
+          <div className="inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
+            <span className={cn("h-2 w-2 shrink-0 rounded-full", dotClassName)} aria-hidden />
             {label}
           </div>
-          <p className="mt-3 text-3xl font-semibold leading-none text-foreground">{value}</p>
+          <p className="mt-3 text-3xl font-semibold tabular-nums leading-none text-foreground">{value}</p>
           <p className="mt-2 text-sm text-muted">{helper}</p>
         </div>
-        <div className="rounded-xl border border-white/15 bg-white/10 p-2.5 text-foreground/90 shadow-inner backdrop-blur-sm">
-          {icon}
-        </div>
+        <div className="rounded-lg border border-border bg-muted/30 p-2.5 text-muted">{icon}</div>
       </div>
     </div>
   );
@@ -116,6 +111,7 @@ function HousekeepingSelect({
   compact?: boolean;
 }) {
   const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
   const v = hkValueForSelect(value);
 
   if (!canManage) {
@@ -143,11 +139,12 @@ function HousekeepingSelect({
       onClick={(e) => e.stopPropagation()}
       onChange={async (e) => {
         const next = e.target.value;
+        setSaveErr(null);
         setSaving(true);
         const res = await setRoomHousekeepingStatusAction({ id: roomId, housekeepingStatus: next });
         setSaving(false);
         if (!res.ok) {
-          alert(res.error);
+          setSaveErr(res.error);
           return;
         }
         onUpdated();
@@ -162,7 +159,12 @@ function HousekeepingSelect({
   );
 
   if (compact) {
-    return control;
+    return (
+      <div className="min-w-0">
+        {control}
+        {saveErr ? <p className="mt-1 max-w-[14rem] text-xs text-red-400">{saveErr}</p> : null}
+      </div>
+    );
   }
 
   return (
@@ -171,6 +173,7 @@ function HousekeepingSelect({
         Housekeeping
       </label>
       {control}
+      {saveErr ? <p className="mt-1 text-xs text-red-400">{saveErr}</p> : null}
     </div>
   );
 }
@@ -181,7 +184,7 @@ function statusDotClass(hk: string | null, op: string | null) {
   if (o === "inactive") return "bg-zinc-500";
   if (o === "occupied") return "bg-amber-500";
   const h = (hk ?? "clean").toLowerCase();
-  if (h === "dirty") return "bg-blue-500";
+  if (h === "dirty") return "bg-gold";
   return "bg-emerald-500";
 }
 
@@ -326,7 +329,9 @@ export function HrrmInventoryPageClient({
       </div>
 
       {loadError ? (
-        <p className="rounded-lg border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-200">{loadError}</p>
+        <p className="rounded-lg border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-800 dark:text-red-200">
+          {loadError}
+        </p>
       ) : null}
 
       {tab === "types" ? (
@@ -370,9 +375,6 @@ export function HrrmInventoryPageClient({
                   </option>
                 ))}
               </select>
-              <span className="text-muted" title="Refine the grid">
-                <Filter className="h-4 w-4" />
-              </span>
             </div>
             <div className="flex flex-wrap gap-2">
               <div className="flex rounded-lg border border-border p-0.5">
@@ -440,6 +442,9 @@ function RoomTypesPanel({
   const [price, setPrice] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [pendingDeleteType, setPendingDeleteType] = useState<RoomTypeRow | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteConfirmErr, setDeleteConfirmErr] = useState<string | null>(null);
 
   function openNew() {
     setEditing(null);
@@ -486,16 +491,32 @@ function RoomTypesPanel({
     onRefresh();
   }
 
-  async function onDelete(t: RoomTypeRow) {
+  function requestDeleteType(t: RoomTypeRow) {
     if (!canManage) return;
-    if (!confirm(`Delete room type “${t.name}”?`)) return;
-    const r = await deleteRoomTypeAction(t.id);
+    setDeleteConfirmErr(null);
+    setPendingDeleteType(t);
+  }
+
+  async function executeDeleteRoomType() {
+    if (!pendingDeleteType) return;
+    setDeleteLoading(true);
+    setDeleteConfirmErr(null);
+    const r = await deleteRoomTypeAction(pendingDeleteType.id);
+    setDeleteLoading(false);
     if (!r.ok) {
-      alert(r.error);
+      setDeleteConfirmErr(r.error);
       return;
     }
-    onTypesChange(roomTypes.filter((x) => x.id !== t.id));
+    const id = pendingDeleteType.id;
+    setPendingDeleteType(null);
+    onTypesChange(roomTypes.filter((x) => x.id !== id));
     onRefresh();
+  }
+
+  function closeDeleteConfirm() {
+    if (deleteLoading) return;
+    setPendingDeleteType(null);
+    setDeleteConfirmErr(null);
   }
 
   return (
@@ -543,7 +564,7 @@ function RoomTypesPanel({
                           variant="ghost"
                           size="sm"
                           className="text-red-500"
-                          onClick={() => void onDelete(t)}
+                          onClick={() => requestDeleteType(t)}
                         >
                           Delete
                         </Button>
@@ -604,6 +625,22 @@ function RoomTypesPanel({
             document.body,
           )
         : null}
+
+      <ConfirmModal
+        open={pendingDeleteType != null}
+        title="Delete room type"
+        description={
+          pendingDeleteType
+            ? `Delete room type “${pendingDeleteType.name}”? This cannot be undone if no rooms depend on it.`
+            : ""
+        }
+        confirmLabel="Delete"
+        destructive
+        loading={deleteLoading}
+        error={deleteConfirmErr}
+        onCancel={closeDeleteConfirm}
+        onConfirm={executeDeleteRoomType}
+      />
     </div>
   );
 }
@@ -638,14 +675,16 @@ function RoomsPanel({
 
   return (
     <>
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-surface-elevated via-surface to-surface-elevated/90 shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-border/60 px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-5">
+      <Card className="overflow-hidden p-0">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-5">
           <div>
-            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">Room Snapshot</p>
-            <h2 className="mt-1 text-lg font-semibold text-foreground">Operational overview</h2>
-            <p className="mt-1 text-sm text-muted">A quick look at housekeeping and occupancy across visible rooms.</p>
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Room snapshot</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground [font-family:var(--font-outfit),system-ui,sans-serif]">
+              Operational overview
+            </h2>
+            <p className="mt-1 text-sm text-muted">Housekeeping and occupancy across rooms (respects filters above).</p>
           </div>
-          <div className="rounded-full border border-border/70 bg-surface-elevated/80 px-3 py-1.5 text-sm text-muted shadow-sm">
+          <div className="rounded-full border border-border bg-muted/30 px-3 py-1.5 text-sm text-muted">
             {visibleCountLabel}
           </div>
         </div>
@@ -655,24 +694,21 @@ function RoomsPanel({
             label="Available"
             value={available}
             helper="Open for assignment"
-            dotClassName="bg-teal-500"
-            className="border-teal-500/25 bg-gradient-to-br from-teal-500/18 via-teal-500/10 to-surface-elevated"
+            dotClassName="bg-emerald-500"
             icon={<CheckCircle2 className="h-5 w-5" />}
           />
           <RoomStatusStat
             label="Clean"
             value={hkCounts.clean ?? 0}
             helper="Housekeeping complete"
-            dotClassName="bg-emerald-500"
-            className="border-emerald-500/25 bg-gradient-to-br from-emerald-500/18 via-emerald-500/10 to-surface-elevated"
+            dotClassName="bg-emerald-600 dark:bg-emerald-400"
             icon={<Sparkles className="h-5 w-5" />}
           />
           <RoomStatusStat
             label="Dirty"
             value={hkCounts.dirty ?? 0}
             helper="Needs housekeeping"
-            dotClassName="bg-sky-500"
-            className="border-sky-500/25 bg-gradient-to-br from-sky-500/18 via-sky-500/10 to-surface-elevated"
+            dotClassName="bg-gold"
             icon={<CircleAlert className="h-5 w-5" />}
           />
           <RoomStatusStat
@@ -680,7 +716,6 @@ function RoomsPanel({
             value={occ}
             helper="Currently in use"
             dotClassName="bg-amber-500"
-            className="border-amber-500/25 bg-gradient-to-br from-amber-500/18 via-amber-500/10 to-surface-elevated"
             icon={<BedDouble className="h-5 w-5" />}
           />
           <RoomStatusStat
@@ -688,11 +723,10 @@ function RoomsPanel({
             value={ooo}
             helper="Temporarily unavailable"
             dotClassName="bg-red-500"
-            className="border-red-500/25 bg-gradient-to-br from-red-500/18 via-red-500/10 to-surface-elevated"
             icon={<Wrench className="h-5 w-5" />}
           />
         </div>
-      </div>
+      </Card>
 
       {view === "grid" ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -809,6 +843,9 @@ function RoomCard({
   const wrapRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const [roomConfirm, setRoomConfirm] = useState<"inactive" | "delete" | null>(null);
+  const [roomActionLoading, setRoomActionLoading] = useState(false);
+  const [roomActionErr, setRoomActionErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -830,22 +867,52 @@ function RoomCard({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
 
-  async function setInactive() {
+  function requestInactive() {
+    setRoomActionErr(null);
     setMenuOpen(false);
-    if (!confirm(`Mark room ${r.room_number} as inactive?`)) return;
-    const res = await setRoomOperationalStatusAction({ id: r.id, operationalStatus: "inactive" });
-    if (!res.ok) alert(res.error);
-    else onRefresh();
+    setRoomConfirm("inactive");
   }
-  async function onDelete() {
+
+  async function executeRoomInactive() {
+    setRoomActionLoading(true);
+    setRoomActionErr(null);
+    const res = await setRoomOperationalStatusAction({ id: r.id, operationalStatus: "inactive" });
+    setRoomActionLoading(false);
+    if (!res.ok) {
+      setRoomActionErr(res.error);
+      return;
+    }
+    setRoomConfirm(null);
+    onRefresh();
+  }
+
+  function requestDeleteRoom() {
+    setRoomActionErr(null);
     setMenuOpen(false);
-    if (!confirm(`Delete room ${r.room_number}?`)) return;
+    setRoomConfirm("delete");
+  }
+
+  async function executeRoomDelete() {
+    setRoomActionLoading(true);
+    setRoomActionErr(null);
     const res = await deleteRoomAction(r.id);
-    if (!res.ok) alert(res.error);
-    else onRefresh();
+    setRoomActionLoading(false);
+    if (!res.ok) {
+      setRoomActionErr(res.error);
+      return;
+    }
+    setRoomConfirm(null);
+    onRefresh();
+  }
+
+  function closeRoomConfirm() {
+    if (roomActionLoading) return;
+    setRoomConfirm(null);
+    setRoomActionErr(null);
   }
 
   return (
+    <>
     <Card className="relative overflow-hidden transition-colors">
       {canManage ? (
         <div className="absolute right-2 top-2 z-20" ref={wrapRef}>
@@ -876,13 +943,13 @@ function RoomCard({
                   <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/5" onClick={() => { setMenuOpen(false); onEdit(); }}>
                     <Pencil className="h-4 w-4" /> Edit
                   </button>
-                  <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/5" onClick={() => void setInactive()}>
+                  <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/5" onClick={requestInactive}>
                     <UserX className="h-4 w-4" /> Mark inactive
                   </button>
                   <button
                     type="button"
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-500 hover:bg-foreground/5"
-                    onClick={() => void onDelete()}
+                    onClick={requestDeleteRoom}
                   >
                     <Trash2 className="h-4 w-4" /> Delete
                   </button>
@@ -921,6 +988,30 @@ function RoomCard({
         </p>
       </CardContent>
     </Card>
+
+      <ConfirmModal
+        open={roomConfirm === "inactive"}
+        title="Mark room inactive"
+        description={`Mark room ${r.room_number} as inactive?`}
+        confirmLabel="Mark inactive"
+        destructive
+        loading={roomActionLoading}
+        error={roomActionErr}
+        onCancel={closeRoomConfirm}
+        onConfirm={executeRoomInactive}
+      />
+      <ConfirmModal
+        open={roomConfirm === "delete"}
+        title="Delete room"
+        description={`Delete room ${r.room_number}? This cannot be undone.`}
+        confirmLabel="Delete room"
+        destructive
+        loading={roomActionLoading}
+        error={roomActionErr}
+        onCancel={closeRoomConfirm}
+        onConfirm={executeRoomDelete}
+      />
+    </>
   );
 }
 

@@ -509,6 +509,8 @@ export type HotelTenantSettings = {
   description: string | null;
   cover_image_url: string | null;
   logo_url: string | null;
+  /** Public URLs for portfolio gallery (managed in Settings). */
+  gallery_urls: string[];
   timezone: string;
   default_currency: string;
   contact_phone: string | null;
@@ -518,6 +520,11 @@ export type HotelTenantSettings = {
   policies_notes: string | null;
 };
 
+function parseTenantGalleryUrls(raw: unknown): string[] {
+  if (!raw || !Array.isArray(raw)) return [];
+  return raw.filter((x): x is string => typeof x === "string" && x.length > 0);
+}
+
 export async function fetchHotelTenantSettings(tenantId: string): Promise<{
   settings: HotelTenantSettings | null;
   error: string | null;
@@ -526,7 +533,7 @@ export async function fetchHotelTenantSettings(tenantId: string): Promise<{
   const { data, error } = await supabase
     .from("tenants")
     .select(
-      "name, slug, region, description, cover_image_url, logo_url, timezone, default_currency, contact_phone, reservations_email, default_check_in_time, default_check_out_time, policies_notes",
+      "name, slug, region, description, cover_image_url, logo_url, gallery_urls, timezone, default_currency, contact_phone, reservations_email, default_check_in_time, default_check_out_time, policies_notes",
     )
     .eq("id", tenantId)
     .maybeSingle();
@@ -546,6 +553,7 @@ export async function fetchHotelTenantSettings(tenantId: string): Promise<{
       description: (row.description as string | null) ?? null,
       cover_image_url: (row.cover_image_url as string | null) ?? null,
       logo_url: (row.logo_url as string | null) ?? null,
+      gallery_urls: parseTenantGalleryUrls(row.gallery_urls),
       timezone: String(row.timezone ?? "UTC"),
       default_currency: String(row.default_currency ?? "ETB"),
       contact_phone: (row.contact_phone as string | null) ?? null,
@@ -558,12 +566,13 @@ export async function fetchHotelTenantSettings(tenantId: string): Promise<{
   };
 }
 
-/** Name, slug, description, and cover for hotel portfolio / property overview. */
+/** Name, slug, description, cover, and gallery for hotel portfolio / property overview. */
 export type TenantPortfolio = {
   name: string;
   slug: string;
   description: string | null;
   cover_image_url: string | null;
+  gallery_urls: string[];
 };
 
 export async function fetchTenantPortfolio(tenantId: string): Promise<{
@@ -573,7 +582,7 @@ export async function fetchTenantPortfolio(tenantId: string): Promise<{
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("tenants")
-    .select("name, slug, description, cover_image_url")
+    .select("name, slug, description, cover_image_url, gallery_urls")
     .eq("id", tenantId)
     .maybeSingle();
 
@@ -583,12 +592,14 @@ export async function fetchTenantPortfolio(tenantId: string): Promise<{
   if (!data) {
     return { portfolio: null, error: null };
   }
+  const row = data as Record<string, unknown>;
   return {
     portfolio: {
       name: data.name,
       slug: data.slug,
-      description: (data as { description?: string | null }).description ?? null,
-      cover_image_url: (data as { cover_image_url?: string | null }).cover_image_url ?? null,
+      description: (row.description as string | null) ?? null,
+      cover_image_url: (row.cover_image_url as string | null) ?? null,
+      gallery_urls: parseTenantGalleryUrls(row.gallery_urls),
     },
     error: null,
   };
@@ -870,7 +881,10 @@ export async function fetchHrmsDashboardStats(tenantId: string) {
 export type DepartmentCountRow = {
   id: string;
   name: string;
+  /** All HR employee rows in this department (may include people without a Supabase login). */
   employee_count: number;
+  /** Employees with `user_id` set — these can appear on the hotel “platform users” staff list when linked to a profile. */
+  linked_login_count: number;
   /** False when department is soft-disabled (hidden from new assignments). Omitted in older API responses. */
   is_active?: boolean;
 };
@@ -912,15 +926,24 @@ export async function fetchDepartmentsWithCounts(tenantId: string): Promise<{
 
   const rows: DepartmentCountRow[] = await Promise.all(
     (depts ?? []).map(async (d) => {
-      const { count } = await supabase
-        .from("employees")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", tenantId)
-        .eq("department_id", d.id);
+      const [{ count }, { count: linkedCount }] = await Promise.all([
+        supabase
+          .from("employees")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", tenantId)
+          .eq("department_id", d.id),
+        supabase
+          .from("employees")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", tenantId)
+          .eq("department_id", d.id)
+          .not("user_id", "is", null),
+      ]);
       return {
         id: d.id,
         name: d.name,
         employee_count: count ?? 0,
+        linked_login_count: linkedCount ?? 0,
         is_active: (d as { is_active?: boolean }).is_active !== false,
       };
     }),
@@ -986,15 +1009,24 @@ export async function fetchHrmsReportsAnalytics(tenantId: string): Promise<{
 
   const departments: DepartmentCountRow[] = await Promise.all(
     (depts ?? []).map(async (d) => {
-      const { count } = await admin
-        .from("employees")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", tenantId)
-        .eq("department_id", d.id);
+      const [{ count }, { count: linkedCount }] = await Promise.all([
+        admin
+          .from("employees")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", tenantId)
+          .eq("department_id", d.id),
+        admin
+          .from("employees")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", tenantId)
+          .eq("department_id", d.id)
+          .not("user_id", "is", null),
+      ]);
       return {
         id: d.id,
         name: d.name,
         employee_count: count ?? 0,
+        linked_login_count: linkedCount ?? 0,
         is_active: (d as { is_active?: boolean }).is_active !== false,
       };
     }),

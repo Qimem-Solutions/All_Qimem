@@ -1,12 +1,6 @@
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
-import {
-  Bell,
-  Search,
-  Settings,
-  ChevronRight,
-  LayoutGrid,
-} from "lucide-react";
+import { Search, ChevronRight, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HeaderProfileMenu } from "@/components/layout/header-profile-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -154,21 +148,6 @@ export function AppShell({
                 <LayoutGrid className="h-5 w-5" />
               </button>
             ) : null}
-            <button
-              type="button"
-              className="relative rounded-lg p-2 text-muted hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/5"
-              aria-label="Notifications"
-            >
-              <Bell className="h-5 w-5" />
-              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />
-            </button>
-            <button
-              type="button"
-              className="rounded-lg p-2 text-muted hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/5"
-              aria-label="Settings"
-            >
-              <Settings className="h-5 w-5" />
-            </button>
             <ThemeToggle size="sm" />
             <HeaderProfileMenu />
           </div>

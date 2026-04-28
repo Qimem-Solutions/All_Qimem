@@ -23,10 +23,10 @@ export default async function HousekeepingPage() {
   if (error || agg.error) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-semibold text-white [font-family:var(--font-outfit),system-ui,sans-serif]">
+        <h1 className="text-2xl font-semibold text-foreground [font-family:var(--font-outfit),system-ui,sans-serif]">
           Housekeeping
         </h1>
-        <p className="rounded-lg border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-200">
+        <p className="rounded-lg border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-800 dark:text-red-200">
           {[error, agg.error].filter(Boolean).join(" ")}
         </p>
       </div>
