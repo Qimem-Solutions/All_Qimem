@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getUserContext } from "@/lib/queries/context";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { DEFAULT_HOTEL_ADMIN_PASSWORD } from "@/lib/constants/admin";
+import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -88,19 +89,24 @@ export async function createHotelAdminAction(input: {
     return { ok: false, error: "Auth user was not returned." };
   }
 
-  const { error: profErr } = await admin.from("profiles").upsert(
-    {
-      id: userId,
-      full_name: fullName,
-      global_role: "hotel_admin",
-      tenant_id: tenantId,
-      must_change_password: password === DEFAULT_HOTEL_ADMIN_PASSWORD,
-    },
-    { onConflict: "id" },
-  );
+  const profileRow = {
+    id: userId,
+    full_name: fullName,
+    global_role: "hotel_admin" as const,
+    tenant_id: tenantId,
+    must_change_password: password === DEFAULT_HOTEL_ADMIN_PASSWORD,
+  };
+
+  let { error: profErr } = await admin.from("profiles").upsert(profileRow, { onConflict: "id" });
+
+  if (profErr && isMissingDbColumnError(profErr)) {
+    const { must_change_password: _m, ...withoutFlag } = profileRow;
+    ({ error: profErr } = await admin.from("profiles").upsert(withoutFlag, { onConflict: "id" }));
+  }
 
   if (profErr) {
-    return { ok: false, error: `User created but profile failed: ${profErr.message}` };
+    await admin.auth.admin.deleteUser(userId);
+    return { ok: false, error: `Profile failed: ${profErr.message}` };
   }
 
   revalidatePath("/superadmin/admins");

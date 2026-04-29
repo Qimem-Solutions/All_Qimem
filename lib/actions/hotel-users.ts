@@ -289,6 +289,51 @@ export async function deactivateHotelStaffUserAction(input: { userId: string }):
   return { ok: true };
 }
 
+export async function activateHotelStaffUserAction(input: { userId: string }): Promise<Ok> {
+  const g = await requireHotelAdminService();
+  if (!g.ok) return g;
+  if (input.userId === g.ctx.userId) {
+    return { ok: false, error: "You cannot reactivate your own account from here." };
+  }
+
+  const { data: prof } = await g.admin
+    .from("profiles")
+    .select("id")
+    .eq("id", input.userId)
+    .eq("tenant_id", g.tenantId)
+    .maybeSingle();
+  if (!prof) {
+    return { ok: false, error: "User not found for this property." };
+  }
+
+  const { data: emp } = await g.admin
+    .from("employees")
+    .select("id")
+    .eq("tenant_id", g.tenantId)
+    .eq("user_id", input.userId)
+    .maybeSingle();
+  if (emp) {
+    const { error: iErr } = await g.admin
+      .from("employees")
+      .update({ status: "active" })
+      .eq("id", emp.id)
+      .eq("tenant_id", g.tenantId);
+    if (iErr) {
+      return { ok: false, error: iErr.message };
+    }
+  }
+
+  const { error: bErr } = await g.admin.auth.admin.updateUserById(input.userId, {
+    ban_duration: "none",
+  });
+  if (bErr) {
+    return { ok: false, error: bErr.message };
+  }
+
+  revalidate();
+  return { ok: true };
+}
+
 export async function deleteHotelStaffUserAction(input: { userId: string }): Promise<Ok> {
   const g = await requireHotelAdminService();
   if (!g.ok) return g;

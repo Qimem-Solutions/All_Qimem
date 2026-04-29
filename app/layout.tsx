@@ -3,6 +3,7 @@ import Script from "next/script";
 import { DM_Sans, Noto_Sans_Ethiopic, Outfit } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PasswordChangeGate } from "@/components/auth/password-change-gate";
+import { StaleSessionCleanup } from "@/components/auth/stale-session-cleanup";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -53,6 +54,7 @@ else{document.documentElement.classList.add('dark');}
 }catch(e){}})();`}
         </Script>
         <ThemeProvider>
+          <StaleSessionCleanup />
           <PasswordChangeGate>{children}</PasswordChangeGate>
         </ThemeProvider>
       </body>

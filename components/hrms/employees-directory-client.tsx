@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,8 @@ function initials(name: string) {
 
 type ViewTab = "directory" | "users";
 
+const ROSTER_PAGE_SIZE = 20;
+
 type Props = {
   tenantId: string;
   rows: EmployeeRow[];
@@ -74,6 +77,7 @@ export function EmployeesDirectoryClient({
   /** "" = all, "__none__" = no department / account-only, else department name */
   const [dept, setDept] = useState<string>("");
   const [viewTab, setViewTab] = useState<ViewTab>("directory");
+  const [rosterPage, setRosterPage] = useState(1);
 
   const departmentFilterNames = useMemo(() => {
     return [...allDepartments.map((d) => d.name)].sort((a, b) => a.localeCompare(b));
@@ -94,6 +98,22 @@ export function EmployeesDirectoryClient({
       return hay.includes(needle);
     });
   }, [rows, q, dept]);
+
+  const rosterTotalPages = Math.max(1, Math.ceil(filtered.length / ROSTER_PAGE_SIZE));
+  const rosterPageSafe = Math.min(Math.max(1, rosterPage), rosterTotalPages);
+  const rosterOffset = (rosterPageSafe - 1) * ROSTER_PAGE_SIZE;
+  const rosterPageRows = useMemo(
+    () => filtered.slice(rosterOffset, rosterOffset + ROSTER_PAGE_SIZE),
+    [filtered, rosterOffset],
+  );
+
+  useEffect(() => {
+    setRosterPage(1);
+  }, [q, dept, viewTab]);
+
+  useEffect(() => {
+    setRosterPage((p) => Math.min(Math.max(1, p), rosterTotalPages));
+  }, [rosterTotalPages]);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -175,8 +195,8 @@ export function EmployeesDirectoryClient({
               <CardTitle>Staff roster</CardTitle>
               <CardDescription>
                 {filtered.length === rows.length
-                  ? "Sorted by name."
-                  : `Showing ${filtered.length} of ${rows.length} people.`}
+                  ? `Sorted by name · ${ROSTER_PAGE_SIZE} per page.`
+                  : `Showing ${filtered.length} of ${rows.length} people · ${ROSTER_PAGE_SIZE} per page.`}
               </CardDescription>
             </div>
           </div>
@@ -229,7 +249,7 @@ export function EmployeesDirectoryClient({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => {
+                {rosterPageRows.map((r) => {
                   const src = employeePhotoSrc(r.photo_url);
                   return (
                     <tr id={`emp-${r.id}`} key={r.id} className="border-b border-border/60 scroll-mt-24">
@@ -289,7 +309,7 @@ export function EmployeesDirectoryClient({
             </table>
           ) : (
             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {filtered.map((r) => {
+              {rosterPageRows.map((r) => {
                 const src = employeePhotoSrc(r.photo_url);
                 return (
                   <article
@@ -331,10 +351,55 @@ export function EmployeesDirectoryClient({
               })}
             </div>
           )}
-          <p className="mt-4 text-xs text-muted">
-            Showing {filtered.length} {filtered.length === 1 ? "person" : "people"}
-            {filtered.length !== rows.length ? ` (filtered from ${rows.length})` : ""}
-          </p>
+          {filtered.length > 0 ? (
+            <div className="mt-6 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-muted">
+                Showing{" "}
+                <span className="tabular-nums text-foreground/90">
+                  {rosterOffset + 1}–{Math.min(rosterOffset + ROSTER_PAGE_SIZE, filtered.length)}
+                </span>{" "}
+                of{" "}
+                <span className="tabular-nums text-foreground/90">{filtered.length}</span>
+                {filtered.length !== rows.length ? ` (filtered from ${rows.length})` : ""}
+                {rosterTotalPages > 1 ? (
+                  <>
+                    {" "}
+                    · page{" "}
+                    <span className="tabular-nums text-foreground/90">{rosterPageSafe}</span> of{" "}
+                    <span className="tabular-nums text-foreground/90">{rosterTotalPages}</span>
+                  </>
+                ) : null}
+              </p>
+              {rosterTotalPages > 1 ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="gap-1"
+                    disabled={rosterPageSafe <= 1}
+                    onClick={() => setRosterPage((p) => Math.max(1, p - 1))}
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="gap-1"
+                    disabled={rosterPageSafe >= rosterTotalPages}
+                    onClick={() => setRosterPage((p) => Math.min(rosterTotalPages, p + 1))}
+                    aria-label="Next page"
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </>

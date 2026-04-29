@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { Input } from "@/components/ui/input";
-import { Pencil, Trash2, UserMinus } from "lucide-react";
+import { Pencil, Trash2, UserMinus, UserCheck } from "lucide-react";
 import {
   deleteEmployeeRecordAction,
   setEmployeeInactiveAction,
+  setEmployeeActiveAction,
   updateEmployeeRecordAction,
   uploadEmployeePhotoAction,
 } from "@/lib/actions/hrms-modules";
@@ -44,7 +45,7 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
   const [photoLoading, setPhotoLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  const [confirmDialog, setConfirmDialog] = useState<"inactive" | "delete" | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<"inactive" | "active" | "delete" | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
@@ -52,15 +53,36 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
     return <span className="text-xs text-zinc-600">—</span>;
   }
 
+  const statusLower = (row.status ?? "").toLowerCase();
+  const isInactive = statusLower === "inactive";
+
   function requestInactive() {
     setConfirmError(null);
     setConfirmDialog("inactive");
+  }
+
+  function requestActive() {
+    setConfirmError(null);
+    setConfirmDialog("active");
   }
 
   async function executeInactive() {
     setConfirmLoading(true);
     setConfirmError(null);
     const res = await setEmployeeInactiveAction({ tenantId, employeeId: row.id });
+    setConfirmLoading(false);
+    if (!res.ok) {
+      setConfirmError(res.error);
+      return;
+    }
+    setConfirmDialog(null);
+    router.refresh();
+  }
+
+  async function executeActive() {
+    setConfirmLoading(true);
+    setConfirmError(null);
+    const res = await setEmployeeActiveAction({ tenantId, employeeId: row.id });
     setConfirmLoading(false);
     if (!res.ok) {
       setConfirmError(res.error);
@@ -175,12 +197,18 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
           type="button"
           size="sm"
           variant="ghost"
-          className="h-8 px-2 text-zinc-400 hover:text-amber-300"
-          title="Mark inactive"
-          aria-label={`Mark ${row.full_name} inactive`}
-          onClick={requestInactive}
+          className={
+            isInactive
+              ? "h-8 px-2 text-zinc-400 hover:text-emerald-400"
+              : "h-8 px-2 text-zinc-400 hover:text-amber-300"
+          }
+          title={isInactive ? "Mark active" : "Mark inactive"}
+          aria-label={
+            isInactive ? `Mark ${row.full_name} active` : `Mark ${row.full_name} inactive`
+          }
+          onClick={isInactive ? requestActive : requestInactive}
         >
-          <UserMinus className="h-4 w-4" />
+          {isInactive ? <UserCheck className="h-4 w-4" /> : <UserMinus className="h-4 w-4" />}
         </Button>
         <Button
           type="button"
@@ -378,6 +406,16 @@ export function EmployeeRowActions({ row, tenantId, departments }: Props) {
         error={confirmError}
         onCancel={closeConfirm}
         onConfirm={executeInactive}
+      />
+      <ConfirmModal
+        open={confirmDialog === "active"}
+        title="Mark active"
+        description={`Set ${row.full_name} back to active? They will show as active in the directory.`}
+        confirmLabel="Mark active"
+        loading={confirmLoading}
+        error={confirmError}
+        onCancel={closeConfirm}
+        onConfirm={executeActive}
       />
       <ConfirmModal
         open={confirmDialog === "delete"}

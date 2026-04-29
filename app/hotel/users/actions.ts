@@ -12,6 +12,7 @@ export {
   setDepartmentActiveAction,
   deleteDepartmentAction,
   updateHotelStaffUserAction,
+  activateHotelStaffUserAction,
   deactivateHotelStaffUserAction,
   deleteHotelStaffUserAction,
 } from "@/lib/actions/hotel-users";

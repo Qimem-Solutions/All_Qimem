@@ -729,6 +729,22 @@ export async function setEmployeeInactiveAction(input: {
   return { ok: true };
 }
 
+export async function setEmployeeActiveAction(input: {
+  tenantId: string;
+  employeeId: string;
+}): Promise<Ok> {
+  const gate = await dbOrAdmin(input.tenantId);
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const { error } = await gate.db
+    .from("employees")
+    .update({ status: "active" })
+    .eq("id", input.employeeId)
+    .eq("tenant_id", input.tenantId);
+  if (error) return { ok: false, error: error.message };
+  revalidateHr();
+  return { ok: true };
+}
+
 export async function deleteEmployeeRecordAction(input: {
   tenantId: string;
   employeeId: string;

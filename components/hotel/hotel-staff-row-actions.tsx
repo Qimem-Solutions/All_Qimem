@@ -3,12 +3,13 @@
 import { useLayoutEffect, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { MoreVertical, Pencil, UserX, Trash2 } from "lucide-react";
+import { MoreVertical, Pencil, UserCheck, UserX, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import {
+  activateHotelStaffUserAction,
   deactivateHotelStaffUserAction,
   deleteHotelStaffUserAction,
   updateHotelStaffUserAction,
@@ -73,7 +74,7 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
   const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmDialog, setConfirmDialog] = useState<"deactivate" | "delete" | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<"deactivate" | "activate" | "delete" | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
@@ -88,6 +89,8 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
   const [monthlySalary, setMonthlySalary] = useState("");
 
   const isSelf = user.id === currentUserId;
+  /** Matches deactivate flow (employee marked inactive + auth banned); drives Activate vs Deactivate menu label. */
+  const employeeLooksDeactivated = user.employee?.status?.toLowerCase() === "inactive";
   const wrapRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -200,17 +203,30 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
     router.refresh();
   }
 
-  function requestDeactivate() {
+  function requestDeactivateOrActivate() {
     if (isSelf) return;
     setConfirmError(null);
     setMenuOpen(false);
-    setConfirmDialog("deactivate");
+    setConfirmDialog(employeeLooksDeactivated ? "activate" : "deactivate");
   }
 
   async function executeDeactivate() {
     setConfirmLoading(true);
     setConfirmError(null);
     const r = await deactivateHotelStaffUserAction({ userId: user.id });
+    setConfirmLoading(false);
+    if (!r.ok) {
+      setConfirmError(r.error);
+      return;
+    }
+    setConfirmDialog(null);
+    router.refresh();
+  }
+
+  async function executeActivate() {
+    setConfirmLoading(true);
+    setConfirmError(null);
+    const r = await activateHotelStaffUserAction({ userId: user.id });
     setConfirmLoading(false);
     if (!r.ok) {
       setConfirmError(r.error);
@@ -291,11 +307,21 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
                 role="menuitem"
                 className={cn(menuItemClass, isSelf && "cursor-not-allowed opacity-50")}
                 disabled={isSelf}
-                title={isSelf ? "You cannot deactivate yourself here" : undefined}
-                onClick={requestDeactivate}
+                title={
+                  isSelf
+                    ? employeeLooksDeactivated
+                      ? "You cannot reactivate yourself here"
+                      : "You cannot deactivate yourself here"
+                    : undefined
+                }
+                onClick={requestDeactivateOrActivate}
               >
-                <UserX className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-                Deactivate
+                {employeeLooksDeactivated ? (
+                  <UserCheck className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                ) : (
+                  <UserX className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                )}
+                {employeeLooksDeactivated ? "Activate" : "Deactivate"}
               </button>
               <button
                 type="button"
@@ -498,6 +524,16 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
         error={confirmError}
         onCancel={closeConfirm}
         onConfirm={executeDeactivate}
+      />
+      <ConfirmModal
+        open={confirmDialog === "activate"}
+        title="Activate user"
+        description={`Activate ${user.full_name ?? "this user"}? Their login will be restored and HR status set to active when they have an employee record.`}
+        confirmLabel="Activate"
+        loading={confirmLoading}
+        error={confirmError}
+        onCancel={closeConfirm}
+        onConfirm={executeActivate}
       />
       <ConfirmModal
         open={confirmDialog === "delete"}

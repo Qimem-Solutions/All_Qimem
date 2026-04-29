@@ -25,7 +25,20 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getUser();
+  const { error: sessionError } = await supabase.auth.getUser();
+
+  /** Stale cookies: refresh fails; clear session cookies to stop repeated client refresh errors. */
+  if (sessionError) {
+    const m = sessionError.message?.toLowerCase() ?? "";
+    const code = String(sessionError.code ?? "");
+    if (
+      code === "refresh_token_not_found" ||
+      (m.includes("refresh") && (m.includes("invalid") || m.includes("not found")))
+    ) {
+      await supabase.auth.signOut();
+    }
+  }
+
   return supabaseResponse;
 }
 

@@ -6,6 +6,7 @@ import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { DEFAULT_STAFF_PASSWORD } from "@/lib/constants/staff";
 import type { ServiceAccessLevel } from "@/lib/auth/service-access";
 import { canManageHrStaff } from "@/lib/auth/can-manage-hr-staff";
+import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -151,16 +152,21 @@ export async function createStaffUserAction(formData: FormData): Promise<CreateS
     return { ok: false, error: "Auth user was not returned." };
   }
 
-  const { error: profErr } = await admin.from("profiles").upsert(
-    {
-      id: userId,
-      full_name: fullName,
-      global_role: "user",
-      tenant_id: tenantId,
-      must_change_password: password === DEFAULT_STAFF_PASSWORD,
-    },
-    { onConflict: "id" },
-  );
+  const profileRow = {
+    id: userId,
+    full_name: fullName,
+    global_role: "user" as const,
+    tenant_id: tenantId,
+    must_change_password: password === DEFAULT_STAFF_PASSWORD,
+  };
+
+  let { error: profErr } = await admin.from("profiles").upsert(profileRow, { onConflict: "id" });
+
+  if (profErr && isMissingDbColumnError(profErr)) {
+    const { must_change_password: _m, ...withoutFlag } = profileRow;
+    ({ error: profErr } = await admin.from("profiles").upsert(withoutFlag, { onConflict: "id" }));
+  }
+
   if (profErr) {
     await admin.auth.admin.deleteUser(userId);
     return { ok: false, error: `Profile failed: ${profErr.message}` };
