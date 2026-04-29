@@ -72,6 +72,7 @@ export function FrontDeskPageClient({
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<GuestHit | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const selectedQueryLocked = selected != null && q.trim() === selected.full_name.trim();
 
   const applyGuestToForm = useCallback((guest: GuestDirectoryRow) => {
     setExistingGuestId(guest.id);
@@ -107,6 +108,12 @@ export function FrontDeskPageClient({
       setSearchLoading(false);
       return;
     }
+    if (selectedQueryLocked) {
+      searchRequestId.current += 1;
+      setSearchOpen(false);
+      setSearchLoading(false);
+      return;
+    }
     if (t.current) clearTimeout(t.current);
     const myId = ++searchRequestId.current;
     t.current = setTimeout(() => {
@@ -129,7 +136,7 @@ export function FrontDeskPageClient({
     return () => {
       if (t.current) clearTimeout(t.current);
     };
-  }, [q]);
+  }, [q, selectedQueryLocked]);
 
   useEffect(() => {
     if (!canManage) {
@@ -510,10 +517,14 @@ export function FrontDeskPageClient({
                 value={q}
                 onChange={(e) => {
                   setQ(e.target.value);
-                  if (!e.target.value.trim()) setSelected(null);
+                  if (!e.target.value.trim()) {
+                    setSelected(null);
+                  } else if (selected && e.target.value.trim() !== selected.full_name.trim()) {
+                    setSelected(null);
+                  }
                 }}
                 onFocus={() => {
-                  if (q.trim().length >= 2) setSearchOpen(true);
+                  if (q.trim().length >= 2 && !selectedQueryLocked) setSearchOpen(true);
                 }}
                 autoComplete="off"
                 name="find_guest"
