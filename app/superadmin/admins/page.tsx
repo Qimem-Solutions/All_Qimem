@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { getUserContext } from "@/lib/queries/context";
 import { fetchAdminsForSuperadmin, fetchTenantsForSelect } from "@/lib/queries/superadmin";
 import { CreateAdminButton } from "./create-admin-button";
+import { AdminRowActions } from "@/components/superadmin/admin-row-actions";
 
 function formatRole(role: string | null) {
   if (!role) return "—";
@@ -78,6 +79,7 @@ export default async function HotelAdminsPage({
                   <th className="pb-3 font-medium">Tenant</th>
                   <th className="pb-3 font-medium">Role</th>
                   <th className="pb-3 font-medium">Status</th>
+                  <th className="pb-3 w-[4rem] font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -92,9 +94,14 @@ export default async function HotelAdminsPage({
                     <td className="py-3">
                       {r.status === "pending_invite" ? (
                         <Badge tone="orange">Pending invite</Badge>
+                      ) : r.auth_banned ? (
+                        <Badge tone="red">Inactive</Badge>
                       ) : (
                         <Badge tone="green">Active</Badge>
                       )}
+                    </td>
+                    <td className="py-3 text-right align-middle">
+                      <AdminRowActions row={r} tenants={tenantOptions} />
                     </td>
                   </tr>
                 ))}

@@ -300,6 +300,8 @@ export type AdminAssignmentRow = {
   tenant_id: string;
   tenant_name: string | null;
   admin_email: string | null;
+  /** Only set for `profile` rows — reflects Auth ban (login blocked). */
+  auth_banned?: boolean;
   status: "active" | "pending_invite";
   sort_at: string;
 };
@@ -397,8 +399,11 @@ export async function fetchAdminsForSuperadmin(): Promise<{
       .filter((r) => r.source === "profile")
       .map(async (r) => {
         const { data } = await sr.auth.admin.getUserById(r.id);
-        const email = data.user?.email ?? null;
+        const user = data.user;
+        const email = user?.email ?? null;
         if (email) r.admin_email = email;
+        const until = user?.banned_until;
+        r.auth_banned = !!(until && new Date(until) > new Date());
       }),
   );
 
