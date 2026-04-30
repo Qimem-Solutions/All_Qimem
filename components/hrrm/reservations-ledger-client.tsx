@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { CalendarRange, Download, Search } from "lucide-react";
 import { formatBirrCents, formatDate, formatRelative } from "@/lib/format";
 import type { ReservationLedgerRow } from "@/lib/queries/tenant-data";
@@ -137,6 +138,8 @@ export function ReservationsLedgerClient({
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [rangeOpen, setRangeOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [preferredSelectedId, setPreferredSelectedId] = useState<string | null>(() => allRows[0]?.id ?? null);
 
   const tabCounts = useMemo(() => {
@@ -185,15 +188,23 @@ export function ReservationsLedgerClient({
     });
   }, [allRows, tab, search, dateFrom, dateTo, todayIso]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageSafe = Math.min(Math.max(1, page), totalPages);
+  const offset = (pageSafe - 1) * pageSize;
+  const pagedRows = useMemo(
+    () => filtered.slice(offset, offset + pageSize),
+    [filtered, offset, pageSize],
+  );
+
   const selectedId = useMemo(() => {
-    if (filtered.length === 0) return null;
-    if (preferredSelectedId && filtered.some((r) => r.id === preferredSelectedId)) return preferredSelectedId;
-    return filtered[0]!.id;
-  }, [filtered, preferredSelectedId]);
+    if (pagedRows.length === 0) return null;
+    if (preferredSelectedId && pagedRows.some((r) => r.id === preferredSelectedId)) return preferredSelectedId;
+    return pagedRows[0]!.id;
+  }, [pagedRows, preferredSelectedId]);
 
   const selected = useMemo(
-    () => (selectedId ? filtered.find((r) => r.id === selectedId) : undefined),
-    [filtered, selectedId],
+    () => (selectedId ? pagedRows.find((r) => r.id === selectedId) : undefined),
+    [pagedRows, selectedId],
   );
 
   const onExport = useCallback(() => {
@@ -252,7 +263,10 @@ export function ReservationsLedgerClient({
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setTab(id)}
+                  onClick={() => {
+                    setTab(id);
+                    setPage(1);
+                  }}
                   className={cn(
                     "shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
                     tab === id
@@ -272,7 +286,10 @@ export function ReservationsLedgerClient({
                 className="pl-9"
                 placeholder="Search guest, confirmation, room…"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
                 aria-label="Filter reservations by search"
               />
             </div>
@@ -324,7 +341,10 @@ export function ReservationsLedgerClient({
                 id="res-from"
                 type="date"
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setPage(1);
+                }}
                 className="w-full min-w-[10rem] sm:w-auto"
               />
             </div>
@@ -336,7 +356,10 @@ export function ReservationsLedgerClient({
                 id="res-to"
                 type="date"
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setPage(1);
+                }}
                 className="w-full min-w-[10rem] sm:w-auto"
               />
             </div>
@@ -376,7 +399,7 @@ export function ReservationsLedgerClient({
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((row) => {
+                  {pagedRows.map((row) => {
                     const isSel = row.id === selectedId;
                     return (
                       <tr
@@ -420,6 +443,19 @@ export function ReservationsLedgerClient({
                 </tbody>
               </table>
             )}
+            <ListPagination
+              itemLabel="reservations"
+              totalItems={allRows.length}
+              filteredItems={filtered.length}
+              page={pageSafe}
+              pageSize={pageSize}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              onPageSizeChange={(next) => {
+                setPageSize(next);
+                setPage(1);
+              }}
+            />
           </CardContent>
         </Card>
 

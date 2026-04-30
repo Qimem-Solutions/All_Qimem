@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { formatMoneyCents } from "@/lib/format";
 import { getFloatingMenuStyle } from "@/components/hotel/floating-menu-position";
 import type { RoomInventoryRow, RoomTypeRow } from "@/lib/queries/hrrm-inventory";
@@ -228,6 +229,8 @@ export function HrrmInventoryPageClient({
   const [search, setSearch] = useState("");
   const [floorQ, setFloorQ] = useState("");
   const [buildingQ, setBuildingQ] = useState("all");
+  const [roomPage, setRoomPage] = useState(1);
+  const [roomPageSize, setRoomPageSize] = useState(12);
 
   useEffect(() => {
     setRooms(initialRooms);
@@ -265,6 +268,14 @@ export function HrrmInventoryPageClient({
       return blob.includes(q);
     });
   }, [rooms, search, floorQ, buildingQ]);
+
+  const roomTotalPages = Math.max(1, Math.ceil(filtered.length / roomPageSize));
+  const roomPageSafe = Math.min(Math.max(1, roomPage), roomTotalPages);
+  const roomOffset = (roomPageSafe - 1) * roomPageSize;
+  const pagedRooms = useMemo(
+    () => filtered.slice(roomOffset, roomOffset + roomPageSize),
+    [filtered, roomOffset, roomPageSize],
+  );
 
   const hkCounts: Record<string, number> = {};
   let available = 0;
@@ -371,12 +382,18 @@ export function HrrmInventoryPageClient({
                 placeholder="Search room, type, or floor…"
                 className="max-w-md flex-1"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setRoomPage(1);
+                }}
               />
               <select
                 className="flex h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
                 value={floorQ}
-                onChange={(e) => setFloorQ(e.target.value)}
+                onChange={(e) => {
+                  setFloorQ(e.target.value);
+                  setRoomPage(1);
+                }}
               >
                 <option value="">All floors</option>
                 {floors.map((f) => (
@@ -388,7 +405,10 @@ export function HrrmInventoryPageClient({
               <select
                 className="flex h-10 min-w-[9rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
                 value={buildingQ}
-                onChange={(e) => setBuildingQ(e.target.value)}
+                onChange={(e) => {
+                  setBuildingQ(e.target.value);
+                  setRoomPage(1);
+                }}
               >
                 <option value="all">All buildings</option>
                 {buildings.map((b) => (
@@ -402,7 +422,10 @@ export function HrrmInventoryPageClient({
               <div className="flex rounded-lg border border-border p-0.5">
                 <button
                   type="button"
-                  onClick={() => setView("grid")}
+                  onClick={() => {
+                    setView("grid");
+                    setRoomPage(1);
+                  }}
                   className={cn(
                     "inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium",
                     view === "grid" ? "bg-gold text-gold-foreground" : "text-muted",
@@ -412,7 +435,10 @@ export function HrrmInventoryPageClient({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setView("list")}
+                  onClick={() => {
+                    setView("list");
+                    setRoomPage(1);
+                  }}
                   className={cn(
                     "inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium",
                     view === "list" ? "bg-gold text-gold-foreground" : "text-muted",
@@ -429,8 +455,9 @@ export function HrrmInventoryPageClient({
 
           <RoomsPanel
             view={view}
-            rooms={filtered}
+            rooms={pagedRooms}
             allCount={rooms.length}
+            filteredCount={filtered.length}
             roomTypes={roomTypes}
             canManage={canManage}
             onRefresh={() => router.refresh()}
@@ -439,6 +466,22 @@ export function HrrmInventoryPageClient({
             available={available}
             ooo={ooo}
             occ={occ}
+            pagination={
+              <ListPagination
+                itemLabel="rooms"
+                totalItems={rooms.length}
+                filteredItems={filtered.length}
+                page={roomPageSafe}
+                pageSize={roomPageSize}
+                totalPages={roomTotalPages}
+                onPageChange={setRoomPage}
+                onPageSizeChange={(next) => {
+                  setRoomPageSize(next);
+                  setRoomPage(1);
+                }}
+                pageSizeOptions={[5, 10, 20, 50]}
+              />
+            }
           />
         </>
       )}
@@ -459,6 +502,9 @@ function RoomTypesPanel({
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<RoomTypeRow | null>(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [name, setName] = useState("");
   const [cap, setCap] = useState("");
   const [price, setPrice] = useState("");
@@ -541,6 +587,25 @@ function RoomTypesPanel({
     setDeleteConfirmErr(null);
   }
 
+  const filteredRoomTypes = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return roomTypes;
+    return roomTypes.filter((type) => {
+      const blob = [type.name, String(type.capacity ?? ""), String(type.price ?? "")]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [roomTypes, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRoomTypes.length / pageSize));
+  const pageSafe = Math.min(Math.max(1, page), totalPages);
+  const offset = (pageSafe - 1) * pageSize;
+  const pagedRoomTypes = useMemo(
+    () => filteredRoomTypes.slice(offset, offset + pageSize),
+    [filteredRoomTypes, offset, pageSize],
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -550,6 +615,17 @@ function RoomTypesPanel({
             <Plus className="h-4 w-4" /> Add room type
           </Button>
         ) : null}
+      </div>
+      <div className="flex w-full max-w-md">
+        <Input
+          placeholder="Search room type, capacity, or price…"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+          aria-label="Search room types"
+        />
       </div>
       {err && !open ? <p className="text-sm text-red-400">{err}</p> : null}
       <div className="overflow-x-auto rounded-xl border border-border">
@@ -563,14 +639,16 @@ function RoomTypesPanel({
             </tr>
           </thead>
           <tbody>
-            {roomTypes.length === 0 ? (
+            {filteredRoomTypes.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-4 py-8 text-center text-muted">
-                  No room types yet. {canManage ? "Add one, then add rooms in the other tab." : ""}
+                  {roomTypes.length === 0
+                    ? `No room types yet. ${canManage ? "Add one, then add rooms in the other tab." : ""}`
+                    : "No room types match your search."}
                 </td>
               </tr>
             ) : (
-              roomTypes.map((t) => (
+              pagedRoomTypes.map((t) => (
                 <tr key={t.id} className="border-b border-border/60">
                   <td className="px-4 py-3 font-medium text-foreground">{t.name}</td>
                   <td className="px-4 py-3 text-muted">{formatRoomTypePrice(t.price)}</td>
@@ -601,6 +679,19 @@ function RoomTypesPanel({
           </tbody>
         </table>
       </div>
+      <ListPagination
+        itemLabel="room types"
+        totalItems={roomTypes.length}
+        filteredItems={filteredRoomTypes.length}
+        page={pageSafe}
+        pageSize={pageSize}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        onPageSizeChange={(next) => {
+          setPageSize(next);
+          setPage(1);
+        }}
+      />
 
       {open && canManage
         ? createPortal(
@@ -671,6 +762,7 @@ function RoomsPanel({
   view,
   rooms,
   allCount,
+  filteredCount,
   roomTypes,
   canManage,
   onRefresh,
@@ -679,10 +771,12 @@ function RoomsPanel({
   available,
   ooo,
   occ,
+  pagination,
 }: {
   view: "grid" | "list";
   rooms: RoomInventoryRow[];
   allCount: number;
+  filteredCount: number;
   roomTypes: RoomTypeRow[];
   canManage: boolean;
   onRefresh: () => void;
@@ -691,9 +785,10 @@ function RoomsPanel({
   available: number;
   ooo: number;
   occ: number;
+  pagination: ReactNode;
 }) {
   const [modal, setModal] = useState<"new" | { edit: RoomInventoryRow } | null>(null);
-  const visibleCountLabel = `Showing ${rooms.length} of ${allCount} room${allCount === 1 ? "" : "s"}`;
+  const visibleCountLabel = `Showing ${filteredCount} of ${allCount} room${allCount === 1 ? "" : "s"}`;
 
   return (
     <>
@@ -833,6 +928,8 @@ function RoomsPanel({
         </div>
         </div>
       )}
+
+      {pagination}
 
       {modal && canManage ? (
         <RoomFormModal

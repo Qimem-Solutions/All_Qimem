@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { formatDate } from "@/lib/format";
 import type { GuestDirectoryRow } from "@/lib/hrrm-guest-directory";
 import { GuestDetailsDialog } from "@/components/hrrm/guest-details-dialog";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { Search, Users } from "lucide-react";
 
 type Props = {
@@ -18,6 +19,9 @@ export function GuestsDirectoryClient({ rows, columns, canManage }: Props) {
   const [dialogRow, setDialogRow] = useState<GuestDirectoryRow | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [stayFilter, setStayFilter] = useState<"all" | "in_house" | "upcoming" | "past" | "none">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   function openRow(r: GuestDirectoryRow) {
     setDialogRow(r);
@@ -38,12 +42,33 @@ export function GuestsDirectoryClient({ rows, columns, canManage }: Props) {
         row.phone ?? "",
         row.national_id_number ?? "",
         row.payment_method ?? "",
+        row.stay?.label ?? "",
+        row.stay?.roomNumber ?? "",
       ]
         .join(" ")
         .toLowerCase();
       return haystack.includes(term);
     });
   }, [query, rows]);
+
+  const visibleRows = useMemo(() => {
+    return filteredRows.filter((row) => {
+      const label = (row.stay?.label ?? "").toLowerCase();
+      if (stayFilter === "in_house") return label.includes("in-house") || label.includes("checked in");
+      if (stayFilter === "upcoming") return label.includes("upcoming");
+      if (stayFilter === "past") return label.includes("completed") || label.includes("checked out") || label.includes("past");
+      if (stayFilter === "none") return !row.stay;
+      return true;
+    });
+  }, [filteredRows, stayFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize));
+  const pageSafe = Math.min(Math.max(1, page), totalPages);
+  const offset = (pageSafe - 1) * pageSize;
+  const pagedRows = useMemo(
+    () => visibleRows.slice(offset, offset + pageSize),
+    [visibleRows, offset, pageSize],
+  );
 
   return (
     <>
@@ -57,31 +82,50 @@ export function GuestsDirectoryClient({ rows, columns, canManage }: Props) {
               </div>
               <CardTitle className="mt-4">Directory</CardTitle>
               <CardDescription className="mt-2">
-                {filteredRows.length} guest{filteredRows.length === 1 ? "" : "s"} shown. Click a row for details.
+                {visibleRows.length} guest{visibleRows.length === 1 ? "" : "s"} shown. Click a row for details.
               </CardDescription>
             </div>
-            <div className="w-full max-w-md">
-              <div className="relative">
+            <div className="flex w-full max-w-3xl flex-col gap-3 sm:flex-row">
+              <div className="relative flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 <Input
                   className="pl-10"
                   placeholder="Search by name, phone, or ID"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setPage(1);
+                  }}
                   aria-label="Search guests"
                 />
               </div>
+              <select
+                className="h-10 min-w-[11rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
+                value={stayFilter}
+                onChange={(e) => {
+                  setStayFilter(e.target.value as "all" | "in_house" | "upcoming" | "past" | "none");
+                  setPage(1);
+                }}
+                aria-label="Filter guests by stay"
+              >
+                <option value="all">All stays</option>
+                <option value="in_house">In house</option>
+                <option value="upcoming">Upcoming</option>
+                <option value="past">Past stays</option>
+                <option value="none">No stay summary</option>
+              </select>
             </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {filteredRows.length === 0 ? (
+          {visibleRows.length === 0 ? (
             <div className="px-6 py-12 text-center">
               <p className="text-sm text-muted">
-                {rows.length === 0 ? "No guests yet. Register at Front desk." : "No guests match your search."}
+                {rows.length === 0 ? "No guests yet. Register at Front desk." : "No guests match your search or filter."}
               </p>
             </div>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[840px] text-left text-sm">
                 <thead>
@@ -98,7 +142,7 @@ export function GuestsDirectoryClient({ rows, columns, canManage }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.map((row) => (
+                  {pagedRows.map((row) => (
                     <tr
                       key={row.id}
                       className="cursor-pointer border-b border-border transition-colors hover:bg-muted/40"
@@ -121,6 +165,22 @@ export function GuestsDirectoryClient({ rows, columns, canManage }: Props) {
                 </tbody>
               </table>
             </div>
+            <div className="px-6 pb-6">
+              <ListPagination
+                itemLabel="guests"
+                totalItems={rows.length}
+                filteredItems={visibleRows.length}
+                page={pageSafe}
+                pageSize={pageSize}
+                totalPages={totalPages}
+                onPageChange={setPage}
+                onPageSizeChange={(next) => {
+                  setPageSize(next);
+                  setPage(1);
+                }}
+              />
+            </div>
+            </>
           )}
         </CardContent>
       </Card>
