@@ -1154,8 +1154,13 @@ export async function fetchRoomHousekeepingAggregate(tenantId: string) {
 
   const byHousekeeping: Record<string, number> = {};
   let outOfOrder = 0;
+  let total = 0;
   for (const r of rooms ?? []) {
     const op = (r.operational_status ?? "").toLowerCase();
+    if (op === "inactive") {
+      continue;
+    }
+    total += 1;
     if (op === "out_of_order" || op === "maintenance" || op === "ooo") {
       outOfOrder += 1;
     }
@@ -1164,7 +1169,7 @@ export async function fetchRoomHousekeepingAggregate(tenantId: string) {
   }
 
   return {
-    total: rooms?.length ?? 0,
+    total,
     byHousekeeping,
     outOfOrder,
     error: null as string | null,

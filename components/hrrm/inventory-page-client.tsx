@@ -61,6 +61,10 @@ function hkValueForSelect(hk: string | null) {
   return "clean";
 }
 
+function isInactiveRoom(op: string | null) {
+  return (op ?? "").toLowerCase() === "inactive";
+}
+
 function formatRoomTypePrice(price: number | null) {
   if (price == null) return "—";
   return formatMoneyCents(Math.round(price * 100));
@@ -99,12 +103,14 @@ function RoomStatusStat({
 function HousekeepingSelect({
   roomId,
   value,
+  operationalStatus,
   canManage,
   onUpdated,
   compact,
 }: {
   roomId: string;
   value: string | null;
+  operationalStatus: string | null;
   canManage: boolean;
   onUpdated: () => void;
   /** Table row: single-line control without extra label block */
@@ -113,6 +119,19 @@ function HousekeepingSelect({
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const v = hkValueForSelect(value);
+  const inactive = isInactiveRoom(operationalStatus);
+
+  if (inactive) {
+    if (compact) {
+      return <span className="text-muted">Inactive</span>;
+    }
+    return (
+      <div className="mt-3">
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">Housekeeping</p>
+        <p className="text-sm text-muted">Inactive rooms are excluded from housekeeping.</p>
+      </div>
+    );
+  }
 
   if (!canManage) {
     const label = HK_OPTIONS.find((x) => x.value === v)?.label ?? (value || "—");
@@ -251,7 +270,10 @@ export function HrrmInventoryPageClient({
   let available = 0;
   let ooo = 0;
   let occ = 0;
-  for (const r of rooms) {
+  for (const r of filtered) {
+    if (isInactiveRoom(r.operational_status)) {
+      continue;
+    }
     const h = (r.housekeeping_status ?? "unknown").toLowerCase();
     hkCounts[h] = (hkCounts[h] ?? 0) + 1;
     const o = (r.operational_status ?? "").toLowerCase();
@@ -783,6 +805,7 @@ function RoomsPanel({
                     <HousekeepingSelect
                       roomId={r.id}
                       value={r.housekeeping_status}
+                      operationalStatus={r.operational_status}
                       canManage={canManage}
                       onUpdated={onRefresh}
                       compact
@@ -813,6 +836,7 @@ function RoomsPanel({
 
       {modal && canManage ? (
         <RoomFormModal
+          key={modal === "new" ? "new-room" : modal.edit.id}
           mode={modal === "new" ? "new" : "edit"}
           room={modal === "new" ? null : modal.edit}
           roomTypes={roomTypes}
@@ -848,26 +872,20 @@ function RoomCard({
   const [roomActionErr, setRoomActionErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!menuOpen) {
-      setMenuStyle(undefined);
-      return;
-    }
-    const t = triggerRef.current;
-    if (t) setMenuStyle(getFloatingMenuStyle(t, 120));
-  }, [menuOpen]);
-
-  useEffect(() => {
     if (!menuOpen) return;
     function onDoc(e: MouseEvent) {
       const n = e.target as Node;
       if (wrapRef.current?.contains(n) || menuRef.current?.contains(n)) return;
+      setMenuStyle(undefined);
       setMenuOpen(false);
     }
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
 
-  function requestInactive() {
+  const roomIsInactive = isInactiveRoom(r.operational_status);
+
+  function requestToggleInactive() {
     setRoomActionErr(null);
     setMenuOpen(false);
     setRoomConfirm("inactive");
@@ -876,7 +894,10 @@ function RoomCard({
   async function executeRoomInactive() {
     setRoomActionLoading(true);
     setRoomActionErr(null);
-    const res = await setRoomOperationalStatusAction({ id: r.id, operationalStatus: "inactive" });
+    const res = await setRoomOperationalStatusAction({
+      id: r.id,
+      operationalStatus: roomIsInactive ? "available" : "inactive",
+    });
     setRoomActionLoading(false);
     if (!res.ok) {
       setRoomActionErr(res.error);
@@ -923,6 +944,7 @@ function RoomCard({
             aria-label="Room actions"
             onClick={() => {
               if (menuOpen) {
+                setMenuStyle(undefined);
                 setMenuOpen(false);
                 return;
               }
@@ -943,8 +965,8 @@ function RoomCard({
                   <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/5" onClick={() => { setMenuOpen(false); onEdit(); }}>
                     <Pencil className="h-4 w-4" /> Edit
                   </button>
-                  <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/5" onClick={requestInactive}>
-                    <UserX className="h-4 w-4" /> Mark inactive
+                  <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/5" onClick={requestToggleInactive}>
+                    <UserX className="h-4 w-4" /> {roomIsInactive ? "Mark active" : "Mark inactive"}
                   </button>
                   <button
                     type="button"
@@ -979,6 +1001,7 @@ function RoomCard({
         <HousekeepingSelect
           roomId={r.id}
           value={r.housekeeping_status}
+          operationalStatus={r.operational_status}
           canManage={canManage}
           onUpdated={onRefresh}
         />
@@ -991,10 +1014,14 @@ function RoomCard({
 
       <ConfirmModal
         open={roomConfirm === "inactive"}
-        title="Mark room inactive"
-        description={`Mark room ${r.room_number} as inactive?`}
-        confirmLabel="Mark inactive"
-        destructive
+        title={roomIsInactive ? "Mark room active" : "Mark room inactive"}
+        description={
+          roomIsInactive
+            ? `Mark room ${r.room_number} active again?`
+            : `Mark room ${r.room_number} as inactive?`
+        }
+        confirmLabel={roomIsInactive ? "Mark active" : "Mark inactive"}
+        destructive={!roomIsInactive}
         loading={roomActionLoading}
         error={roomActionErr}
         onCancel={closeRoomConfirm}
@@ -1036,17 +1063,7 @@ function RoomFormModal({
   const [op, setOp] = useState((room?.operational_status as string) ?? "available");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (room) {
-      setRoomNumber(room.room_number);
-      setTypeId(room.room_type_id ?? "");
-      setFloor(room.floor ?? "");
-      setBuilding(room.building ?? "");
-      setHk(room.housekeeping_status ?? "clean");
-      setOp(room.operational_status ?? "available");
-    }
-  }, [room]);
+  const inactive = isInactiveRoom(op);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1133,6 +1150,7 @@ function RoomFormModal({
             <select
               className="mt-1 flex h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm"
               value={hk}
+              disabled={inactive}
               onChange={(e) => setHk(e.target.value)}
             >
               {HK_OPTIONS.map((o) => (
@@ -1141,6 +1159,7 @@ function RoomFormModal({
                 </option>
               ))}
             </select>
+            {inactive ? <p className="mt-1 text-xs text-muted">Inactive rooms do not carry a housekeeping status.</p> : null}
           </div>
           <div>
             <label className="text-xs font-medium text-muted">Operational</label>

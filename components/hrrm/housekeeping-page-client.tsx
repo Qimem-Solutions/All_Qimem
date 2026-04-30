@@ -60,6 +60,7 @@ export function HousekeepingPageClient({ rooms, canManage, totals }: Props) {
   const visibleRooms = useMemo(() => {
     const term = query.trim().toLowerCase();
     return rooms.filter((room) => {
+      if ((room.operational_status ?? "").toLowerCase() === "inactive") return false;
       const housekeeping = (room.housekeeping_status ?? "clean").toLowerCase();
       if (filter !== "all" && housekeeping !== filter) return false;
       if (!term) return true;
