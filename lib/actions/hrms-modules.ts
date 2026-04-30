@@ -407,6 +407,7 @@ export async function submitRecruitmentApplicationAction(
   }
 
   revalidateHr();
+  revalidatePath("/hotel/dashboard");
   return { ok: true, data: { id: candidateId } };
 }
 

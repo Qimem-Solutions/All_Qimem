@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createStaffUserAction } from "@/lib/actions/hr-staff";
@@ -24,6 +25,7 @@ export function CreateStaffButton({ departments }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [hrms, setHrms] = useState<ServiceAccessLevel>("view");
   const [hrrm, setHrrm] = useState<ServiceAccessLevel>("view");
+  const [showPassword, setShowPassword] = useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -103,13 +105,28 @@ export function CreateStaffButton({ departments }: Props) {
                 <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor="password">
                   Password (optional)
                 </label>
-                <Input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="Defaults to Staff@123"
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    placeholder="Defaults to Staff@123"
+                    className="pr-12"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground/55 hover:text-foreground dark:text-zinc-500 dark:hover:text-zinc-300"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                    ) : (
+                      <Eye className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                    )}
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-zinc-400" htmlFor="jobTitle">

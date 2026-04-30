@@ -5,6 +5,8 @@ import { getHrrmLayoutModel } from "@/lib/auth/hrrm-station.server";
 import { getUserContext } from "@/lib/queries/context";
 import { getServiceAccessForLayout } from "@/lib/auth/service-access";
 import { enforceExpiredSubscriptionForTenant } from "@/lib/subscriptions/subscription-expiry";
+import { fetchHotelTenantSettings } from "@/lib/queries/tenant-data";
+import { tenantBrandInlineStyle } from "@/lib/theme/tenant-brand-color";
 
 export default async function HrrmLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getUserContext();
@@ -30,14 +32,21 @@ export default async function HrrmLayout({ children }: { children: React.ReactNo
   const workstationCookie = cookieStore.get("hrrm_workstation")?.value;
   const model = await getHrrmLayoutModel(ctx, workstationCookie);
 
+  const { settings } = await fetchHotelTenantSettings(ctx.tenantId);
+  const primary = settings?.primary_brand_color;
+  const tenantThemeStyle = primary ? tenantBrandInlineStyle(primary) : undefined;
+
   return (
-    <HrrmAppChrome
-      readOnly={access === "view"}
-      orgScope={model.orgScope}
-      effective={model.effective}
-      canSwitch={model.canSwitch}
-    >
-      {children}
-    </HrrmAppChrome>
+    <div className="min-h-dvh" style={tenantThemeStyle}>
+      <HrrmAppChrome
+        readOnly={access === "view"}
+        orgScope={model.orgScope}
+        effective={model.effective}
+        canSwitch={model.canSwitch}
+        showBackToHome={ctx.globalRole === "hotel_admin"}
+      >
+        {children}
+      </HrrmAppChrome>
+    </div>
   );
 }

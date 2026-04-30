@@ -113,6 +113,8 @@ export type HrmsDirectoryRow = {
   /** Storage path for private bucket `employee-photos`, or legacy http URL */
   photo_url: string | null;
   monthly_salary_cents: number | null;
+  /** Login profile role when `kind === "account"`; always null for employee rows. */
+  global_role: string | null;
 };
 
 function accountJobTitleFromGlobalRole(globalRole: string | null): string {
@@ -164,6 +166,7 @@ export async function fetchHrmsDirectory(
         department_name: r.department_name,
         photo_url: r.photo_url ?? null,
         monthly_salary_cents: r.monthly_salary_cents ?? null,
+        global_role: null,
       })),
       departments: depts.rows,
       error: emp.error ?? depts.error,
@@ -207,6 +210,7 @@ export async function fetchHrmsDirectory(
     department_name: e.department_id ? deptMap.get(e.department_id) ?? null : null,
     photo_url: e.photo_url ?? null,
     monthly_salary_cents: e.monthly_salary_cents ?? null,
+    global_role: null,
   }));
 
   const linkedUserIds = new Set(
@@ -241,6 +245,7 @@ export async function fetchHrmsDirectory(
       department_name: null,
       photo_url: null,
       monthly_salary_cents: null,
+      global_role: p.global_role ?? null,
     }));
 
   const merged = [...empRows, ...accountRows].sort((a, b) =>

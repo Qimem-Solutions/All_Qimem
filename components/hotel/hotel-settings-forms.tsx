@@ -1,8 +1,10 @@
 "use client";
 
-import { useActionState, useMemo } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronRight, CreditCard, ImageIcon, Phone, Building2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
+import { ChevronRight, CreditCard, ImageIcon, Phone, Building2, Palette } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -15,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { HotelTenantSettings } from "@/lib/queries/tenant-data";
 import { HOTEL_TIMEZONES, HOTEL_CURRENCIES } from "@/lib/constants/hotel-settings";
+import { ETHIOPIA_REGIONS } from "@/lib/tenant-onboarding-options";
 import {
   updateHotelGeneralSettings,
   updateHotelBrandingSettings,
@@ -61,6 +64,137 @@ function SectionHeader({
   );
 }
 
+function effectiveBrandHex(settings: HotelTenantSettings) {
+  const p = settings.primary_brand_color?.trim();
+  if (p && /^#[0-9a-fA-F]{6}$/.test(p)) return p;
+  return "#e8c547";
+}
+
+function WorkspaceBrandingCard({
+  settings,
+  brandAction,
+  brandPending,
+  brandState,
+}: {
+  settings: HotelTenantSettings;
+  brandAction: (formData: FormData) => void;
+  brandPending: boolean;
+  brandState: HotelSettingsActionState;
+}) {
+  const router = useRouter();
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const [accentDraft, setAccentDraft] = useState(() => effectiveBrandHex(settings));
+
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    setAccentDraft(effectiveBrandHex(settings));
+  }, [settings.primary_brand_color]);
+
+  useEffect(() => {
+    if (brandState?.ok) router.refresh();
+  }, [brandState, router]);
+
+  const prefLabel =
+    theme === "light"
+      ? "Light"
+      : theme === "dark"
+        ? "Dark"
+        : theme === "system"
+          ? "System (follow device)"
+          : "Dark";
+
+  return (
+    <Card>
+      <CardHeader>
+        <SectionHeader
+          icon={Palette}
+          title="Branding"
+          description="Your light/dark preference on this device, and the property accent colour everyone sees while signed into this hotel."
+        />
+      </CardHeader>
+      <CardContent className="max-w-xl space-y-6">
+        <div className="rounded-xl border border-border/80 bg-muted/20 px-4 py-3 dark:bg-muted/10">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted">Current theme</p>
+          <p className="mt-1 text-sm text-foreground">
+            {mounted ? (
+              <>
+                Preference: <strong className="font-semibold capitalize">{prefLabel}</strong>
+                {theme === "system" ? (
+                  <>
+                    {" · "}
+                    <span className="text-muted">
+                      Showing <strong className="text-foreground">{resolvedTheme}</strong> mode now.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    {" · "}
+                    <span className="text-muted">
+                      Showing <strong className="text-foreground">{resolvedTheme}</strong>.
+                    </span>
+                  </>
+                )}
+              </>
+            ) : (
+              <span className="text-muted">Loading…</span>
+            )}
+          </p>
+          <label className={`${labelClass} mt-3`} htmlFor="workspace-appearance">
+            Workspace appearance
+          </label>
+          <select
+            id="workspace-appearance"
+            className={cn(control, "h-10")}
+            disabled={!mounted}
+            value={theme ?? "dark"}
+            onChange={(e) => setTheme(e.target.value)}
+          >
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="system">System · match device</option>
+          </select>
+          <p className="mt-1.5 text-[11px] text-muted">
+            Applies on this browser only. Other accounts can pick their own light or dark theme.
+          </p>
+        </div>
+
+        <form action={brandAction} className="space-y-4">
+          <input type="hidden" name="primary_brand_color" value={accentDraft} />
+          <div>
+            <label className={labelClass} htmlFor="primary_brand_color_picker">
+              Property accent colour
+            </label>
+            <p className="mb-2 text-xs text-muted">
+              Navigation and primary buttons for everyone at this property — pick a shade, save, and hotel
+              nav/buttons refresh to match.
+            </p>
+            <div className="flex flex-wrap items-center gap-4">
+              <input
+                id="primary_brand_color_picker"
+                type="color"
+                aria-label="Pick accent colour"
+                value={accentDraft}
+                onChange={(e) => setAccentDraft(e.target.value)}
+                className="h-12 w-[4.75rem] shrink-0 cursor-pointer rounded border border-border bg-transparent p-1"
+              />
+              <span className="font-mono text-sm text-muted tabular-nums">{accentDraft}</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <Button type="submit" variant="primary" disabled={brandPending} className="w-full sm:w-auto">
+              {brandPending ? "Saving…" : "Save accent colour"}
+            </Button>
+            <FormMessage state={brandState} />
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function HotelSettingsForms({ settings }: { settings: HotelTenantSettings }) {
   const [genState, genAction, genPending] = useActionState(updateHotelGeneralSettings, null);
   const [brandState, brandAction, brandPending] = useActionState(
@@ -88,6 +222,20 @@ export function HotelSettingsForms({ settings }: { settings: HotelTenantSettings
       ...HOTEL_CURRENCIES,
     ];
   }, [settings.default_currency]);
+
+  const regionOptions = useMemo(() => {
+    const current = settings.region?.trim();
+    const opts = ETHIOPIA_REGIONS.map((r) => ({ value: r, label: r }));
+    if (!current) return opts;
+    if ((ETHIOPIA_REGIONS as readonly string[]).includes(current)) return opts;
+    return [
+      {
+        value: current,
+        label: `${current} (current · not in catalog)`,
+      },
+      ...opts,
+    ];
+  }, [settings.region]);
 
   return (
     <div className="space-y-6">
@@ -117,12 +265,22 @@ export function HotelSettingsForms({ settings }: { settings: HotelTenantSettings
               <label className={labelClass} htmlFor="region">
                 Region / market
               </label>
-              <Input
+              <select
                 id="region"
                 name="region"
+                className={cn(control, "h-10")}
                 defaultValue={settings.region ?? ""}
-                placeholder="e.g. Dubai, MEA"
-              />
+              >
+                <option value="">Select federal region or chartered city…</option>
+                {regionOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-muted">
+                Same Ethiopian regions as platform onboarding — pick the property&apos;s area.
+              </p>
             </div>
             <div>
               <label className={labelClass} htmlFor="slug-disp">
@@ -178,99 +336,12 @@ export function HotelSettingsForms({ settings }: { settings: HotelTenantSettings
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <SectionHeader
-            icon={ImageIcon}
-            title="Branding"
-            description="Property story, images, logo URLs, and primary UI accent color for staff screens."
-          />
-        </CardHeader>
-        <CardContent>
-          <form action={brandAction} className="max-w-2xl space-y-4">
-            <div>
-              <label className={labelClass} htmlFor="description">
-                Short description
-              </label>
-              <textarea
-                id="description"
-                name="description"
-                className={textareaClass}
-                defaultValue={settings.description ?? ""}
-                placeholder="How you describe the property to guests and staff."
-                rows={4}
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="cover_image_url">
-                Cover image URL
-              </label>
-              <Input
-                id="cover_image_url"
-                name="cover_image_url"
-                type="url"
-                defaultValue={settings.cover_image_url ?? ""}
-                placeholder="https://… (e.g. Supabase Storage or CDN)"
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="primary_brand_color">
-                Primary brand color
-              </label>
-              <p className="mb-2 text-xs text-muted">
-                Accent for navigation, buttons, and highlights for everyone at this property (hex).
-              </p>
-              <div className="flex flex-wrap items-center gap-3">
-                <input
-                  id="primary_brand_color"
-                  name="primary_brand_color"
-                  type="color"
-                  defaultValue={
-                    settings.primary_brand_color &&
-                    /^#[0-9a-fA-F]{6}$/.test(settings.primary_brand_color)
-                      ? settings.primary_brand_color
-                      : "#e8c547"
-                  }
-                  className="h-11 w-14 cursor-pointer rounded border border-border bg-transparent p-1"
-                />
-                <span className="text-xs text-muted">
-                  Applies to navigation, primary buttons, and gold accents for everyone signed in to this
-                  property.
-                </span>
-              </div>
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="logo_url">
-                Logo URL
-              </label>
-              <Input
-                id="logo_url"
-                name="logo_url"
-                type="url"
-                defaultValue={settings.logo_url ?? ""}
-                placeholder="https://… square logo, transparent background recommended"
-              />
-            </div>
-            {settings.logo_url ? (
-              <div className="flex items-center gap-3 rounded-lg border border-border/60 bg-surface-elevated/20 p-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={settings.logo_url}
-                  alt=""
-                  className="h-12 w-12 object-contain"
-                />
-                <p className="text-xs text-muted">Logo preview (saved value)</p>
-              </div>
-            ) : null}
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-              <Button type="submit" variant="primary" disabled={brandPending} className="w-full sm:w-auto">
-                {brandPending ? "Saving…" : "Save branding"}
-              </Button>
-              <FormMessage state={brandState} />
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <WorkspaceBrandingCard
+        settings={settings}
+        brandAction={brandAction}
+        brandPending={brandPending}
+        brandState={brandState}
+      />
 
       <Card>
         <CardHeader>

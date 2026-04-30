@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -8,6 +8,8 @@ import {
   Check,
   Lock,
   ChevronLeft,
+  Upload,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +22,10 @@ const steps = [
   { id: 2, label: "Branding", key: "branding" },
   { id: 3, label: "Confirmation", key: "confirm" },
 ] as const;
+
+const PROPERTY_GALLERY_MAX_FILES = 12;
+const PROPERTY_GALLERY_MAX_BYTES = 5 * 1024 * 1024;
+const PROPERTY_GALLERY_ACCEPT = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export default function TenantCreationOnboardingPage() {
   const router = useRouter();
@@ -35,6 +41,9 @@ export default function TenantCreationOnboardingPage() {
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
+  const [galleryPreviews, setGalleryPreviews] = useState<string[]>([]);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -57,6 +66,16 @@ export default function TenantCreationOnboardingPage() {
     setLogoPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [logoFile]);
+
+  useEffect(() => {
+    if (galleryFiles.length === 0) {
+      setGalleryPreviews([]);
+      return;
+    }
+    const urls = galleryFiles.map((f) => URL.createObjectURL(f));
+    setGalleryPreviews(urls);
+    return () => urls.forEach((u) => URL.revokeObjectURL(u));
+  }, [galleryFiles]);
 
   function next() {
     if (step === 1) {
@@ -92,6 +111,9 @@ export default function TenantCreationOnboardingPage() {
     fd.set("description", form.description.trim());
     if (coverFile) fd.set("coverImage", coverFile);
     if (logoFile) fd.set("logoImage", logoFile);
+    for (const f of galleryFiles) {
+      fd.append("galleryImage", f);
+    }
     fd.set("primaryBrandColor", form.primaryColor.trim());
     const result = await createTenantAction(fd);
     setSubmitting(false);
@@ -378,8 +400,94 @@ export default function TenantCreationOnboardingPage() {
                             alt="Logo preview"
                             className="h-14 w-14 shrink-0 object-contain"
                           />
-                          <p className="text-xs text-zinc-500">Preview — appears on staff login and in the app header.</p>
+                            <p className="text-xs text-zinc-500">Preview — appears on staff login and in the app header.</p>
                         </div>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-xl border border-border/70 bg-zinc-950/25 p-5">
+                      <h3 className="text-sm font-semibold text-white [font-family:var(--font-outfit),system-ui,sans-serif]">
+                        Property gallery
+                      </h3>
+                      <p className="mt-1 text-sm text-zinc-500">
+                        Photos shown on your Portfolio page below &quot;About this property&quot; with a slideshow.
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-400">
+                        Upload photos of your property. They appear on the Portfolio page below &quot;About this
+                        property&quot; with a slideshow guests and staff can browse.
+                      </p>
+                      <p className="mt-2 text-xs text-zinc-600">
+                        Optional. Add photos — select multiple for the slideshow (JPEG, PNG, or WebP · max 5 MB each ·
+                        up to {PROPERTY_GALLERY_MAX_FILES} total). They upload when you complete provisioning.
+                      </p>
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+                          <input
+                            ref={galleryInputRef}
+                            type="file"
+                            multiple
+                            accept="image/jpeg,image/png,image/webp"
+                            className="sr-only"
+                            onChange={(e) => {
+                              const list = e.target.files;
+                              if (!list?.length) return;
+                              setGalleryFiles((prev) => {
+                                const next = [...prev];
+                                for (let i = 0; i < list.length; i++) {
+                                  const f = list[i];
+                                  if (next.length >= PROPERTY_GALLERY_MAX_FILES) break;
+                                  if (!PROPERTY_GALLERY_ACCEPT.has(f.type)) continue;
+                                  if (f.size > PROPERTY_GALLERY_MAX_BYTES) continue;
+                                  next.push(f);
+                                }
+                                return next;
+                              });
+                              e.target.value = "";
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="shrink-0"
+                            onClick={() => galleryInputRef.current?.click()}
+                          >
+                            Choose files
+                          </Button>
+                          <span className="truncate text-xs text-zinc-500">
+                            {galleryFiles.length === 0
+                              ? "No files chosen"
+                              : `${galleryFiles.length} photo${galleryFiles.length === 1 ? "" : "s"} queued`}
+                          </span>
+                        </div>
+                        <div
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-zinc-900/50 text-zinc-400"
+                          title="Included in final provisioning step"
+                        >
+                          <Upload className="h-4 w-4" />
+                        </div>
+                      </div>
+                      {galleryPreviews.length > 0 ? (
+                        <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                          {galleryPreviews.map((src, idx) => (
+                            <li
+                              key={`${src}-${idx}`}
+                              className="relative overflow-hidden rounded-lg border border-border bg-black/20"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={src} alt="" className="aspect-square w-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setGalleryFiles((prev) => prev.filter((_, j) => j !== idx))
+                                }
+                                className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full border border-red-500/40 bg-black/75 text-red-200 shadow-md backdrop-blur-sm hover:bg-red-950/90"
+                                aria-label="Remove photo"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
                       ) : null}
                     </div>
                   </div>
@@ -462,6 +570,23 @@ export default function TenantCreationOnboardingPage() {
                           </div>
                         ) : (
                           <span className="text-sm text-zinc-500">None selected</span>
+                        )}
+                      </dd>
+                    </div>
+                    <div className="py-2">
+                      <dt className="text-zinc-500">Property gallery</dt>
+                      <dd className="mt-2">
+                        {galleryPreviews.length > 0 ? (
+                          <ul className="grid max-w-lg grid-cols-4 gap-2">
+                            {galleryPreviews.map((src, i) => (
+                              <li key={i} className="overflow-hidden rounded-md border border-border">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={src} alt="" className="aspect-square w-full object-cover" />
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="text-sm text-zinc-500">None — optional</span>
                         )}
                       </dd>
                     </div>

@@ -5,25 +5,17 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getUserContext } from "@/lib/queries/context";
 import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
+import {
+  HOTEL_GALLERY_BUCKET,
+  HOTEL_GALLERY_COLUMN_MISSING_MESSAGE,
+  HOTEL_GALLERY_MAX_IMAGES,
+  hotelGalleryExtForMime,
+  validateHotelGalleryFile,
+  type GalleryActionResult,
+} from "@/lib/hotel-gallery/shared";
 
-/** Shown when migrations haven’t been applied to the linked Supabase project. */
-const GALLERY_COLUMN_MISSING_MESSAGE =
-  "Property gallery isn’t available on this database yet. Apply migration 20260430130000_tenant_property_gallery.sql " +
-  "(Supabase Dashboard → SQL Editor, or run `supabase db push` / link CLI), then try again.";
-
-export type GalleryActionResult = { ok: true; message?: string } | { ok: false; error: string };
-
-const BUCKET = "hotel-gallery";
-const MAX_IMAGES = 12;
-const MAX_BYTES = 5 * 1024 * 1024;
-const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
-
-function extForMime(mime: string): string | null {
-  if (mime === "image/jpeg") return "jpg";
-  if (mime === "image/png") return "png";
-  if (mime === "image/webp") return "webp";
-  return null;
-}
+const BUCKET = HOTEL_GALLERY_BUCKET;
+const MAX_IMAGES = HOTEL_GALLERY_MAX_IMAGES;
 
 async function requireHotelAdminTenant() {
   const ctx = await getUserContext();
@@ -31,23 +23,6 @@ async function requireHotelAdminTenant() {
     return { tenantId: null as string | null };
   }
   return { tenantId: ctx.tenantId };
-}
-
-function validateGalleryFile(file: File): string | null {
-  if (!(file instanceof File) || file.size === 0) {
-    return "Each file must be a non-empty image.";
-  }
-  if (file.size > MAX_BYTES) {
-    return "Each image must be 5 MB or smaller.";
-  }
-  const mime = file.type.toLowerCase();
-  if (!ALLOWED.has(mime)) {
-    return "Use JPEG, PNG, or WebP only.";
-  }
-  if (!extForMime(mime)) {
-    return "Unsupported image type.";
-  }
-  return null;
 }
 
 /** useActionState passes (previousState, formData); `<form action>` may pass FormData as the only argument. */
@@ -90,7 +65,7 @@ export async function uploadHotelGalleryImageAction(
   if (fetchErr) {
     return {
       ok: false,
-      error: isMissingDbColumnError(fetchErr) ? GALLERY_COLUMN_MISSING_MESSAGE : fetchErr.message,
+      error: isMissingDbColumnError(fetchErr) ? HOTEL_GALLERY_COLUMN_MISSING_MESSAGE : fetchErr.message,
     };
   }
 
@@ -98,7 +73,7 @@ export async function uploadHotelGalleryImageAction(
   const uploadedPaths: string[] = [];
 
   for (const file of files) {
-    const err = validateGalleryFile(file);
+    const err = validateHotelGalleryFile(file);
     if (err) {
       for (const p of uploadedPaths) {
         await supabase.storage.from(BUCKET).remove([p]);
@@ -116,7 +91,7 @@ export async function uploadHotelGalleryImageAction(
     }
 
     const mime = file.type.toLowerCase();
-    const ext = extForMime(mime)!;
+    const ext = hotelGalleryExtForMime(mime)!;
     const path = `${tenantId}/${randomUUID()}.${ext}`;
     const buf = Buffer.from(await file.arrayBuffer());
 
@@ -147,7 +122,7 @@ export async function uploadHotelGalleryImageAction(
     }
     return {
       ok: false,
-      error: isMissingDbColumnError(updErr) ? GALLERY_COLUMN_MISSING_MESSAGE : updErr.message,
+      error: isMissingDbColumnError(updErr) ? HOTEL_GALLERY_COLUMN_MISSING_MESSAGE : updErr.message,
     };
   }
 
@@ -206,7 +181,7 @@ export async function removeHotelGalleryImageAction(
   if (fetchErr) {
     return {
       ok: false,
-      error: isMissingDbColumnError(fetchErr) ? GALLERY_COLUMN_MISSING_MESSAGE : fetchErr.message,
+      error: isMissingDbColumnError(fetchErr) ? HOTEL_GALLERY_COLUMN_MISSING_MESSAGE : fetchErr.message,
     };
   }
 
@@ -227,7 +202,7 @@ export async function removeHotelGalleryImageAction(
   if (updErr) {
     return {
       ok: false,
-      error: isMissingDbColumnError(updErr) ? GALLERY_COLUMN_MISSING_MESSAGE : updErr.message,
+      error: isMissingDbColumnError(updErr) ? HOTEL_GALLERY_COLUMN_MISSING_MESSAGE : updErr.message,
     };
   }
 

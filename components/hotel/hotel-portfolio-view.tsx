@@ -1,18 +1,33 @@
-import Link from "next/link";
-import { ArrowRight, LayoutGrid } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { TenantPortfolio } from "@/lib/queries/tenant-data";
-import { HotelPropertyGalleryCarousel } from "@/components/hotel/hotel-property-gallery-carousel";
+import type { JobRequisitionRow } from "@/lib/queries/hrms-extended";
+import {
+  HotelPortfolioTabs,
+  type PortfolioContactInfo,
+} from "@/components/hotel/hotel-portfolio-tabs";
 
 type Props = {
+  tenantId: string;
   portfolio: TenantPortfolio;
   planLabel: string | null;
   subscriptionStatus: string | null;
   subError: string | null;
+  openJobs: JobRequisitionRow[];
+  jobsError: string | null;
+  contact: PortfolioContactInfo;
 };
 
-export function HotelPortfolioView({ portfolio, planLabel, subscriptionStatus, subError }: Props) {
+export function HotelPortfolioView({
+  tenantId,
+  portfolio,
+  planLabel,
+  subscriptionStatus,
+  subError,
+  openJobs,
+  jobsError,
+  contact,
+}: Props) {
   const { name, description, cover_image_url, slug, gallery_urls } = portfolio;
   return (
     <div className="space-y-0">
@@ -62,40 +77,14 @@ export function HotelPortfolioView({ portfolio, planLabel, subscriptionStatus, s
         </div>
       </div>
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[1fr,280px]">
-        <div className="space-y-8">
-          <div className="space-y-3">
-            <h2 className="text-lg font-semibold text-foreground">About this property</h2>
-            {description?.trim() ? (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted sm:text-base">
-                {description.trim()}
-              </p>
-            ) : (
-              <p className="text-sm text-muted">
-                Add a short description under Property settings → Branding so it appears here. Images
-                below come from Settings → Property gallery.
-              </p>
-            )}
-          </div>
-          <HotelPropertyGalleryCarousel urls={Array.isArray(gallery_urls) ? gallery_urls : []} />
-        </div>
-        <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface-elevated/50 p-5">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted">Operations</p>
-          <p className="text-sm text-muted">
-            Open HRMS, HRRM, and reporting from the modules hub. Sidebar links stay the same.
-          </p>
-          <Link
-            href="/hotel/modules"
-            className="inline-flex h-10 w-full items-center justify-between gap-2 rounded-lg bg-gold px-4 text-sm font-medium text-gold-foreground transition-colors hover:bg-gold-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
-          >
-            <span className="inline-flex items-center gap-2">
-              <LayoutGrid className="h-4 w-4" />
-              Open modules
-            </span>
-            <ArrowRight className="h-4 w-4 opacity-80" />
-          </Link>
-        </div>
-      </div>
+      <HotelPortfolioTabs
+        tenantId={tenantId}
+        description={description}
+        galleryUrls={Array.isArray(gallery_urls) ? gallery_urls : []}
+        openJobs={openJobs}
+        jobsError={jobsError}
+        contact={contact}
+      />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
@@ -10,6 +11,14 @@ import {
   subscriptionPeriodEndFromNow,
 } from "@/lib/subscriptions/billing-period";
 import { toUserFacingError } from "@/lib/errors/user-facing";
+import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
+import {
+  HOTEL_GALLERY_BUCKET,
+  HOTEL_GALLERY_COLUMN_MISSING_MESSAGE,
+  HOTEL_GALLERY_MAX_IMAGES,
+  hotelGalleryExtForMime,
+  validateHotelGalleryFile,
+} from "@/lib/hotel-gallery/shared";
 
 export type CreateTenantResult =
   | { ok: true; tenantId: string }
@@ -39,7 +48,8 @@ async function rollbackTenant(supabase: Awaited<ReturnType<typeof createClient>>
 /**
  * Inserts a tenant row plus default subscription and entitlements.
  * Optional cover image: uploaded to the `tenant-covers` Storage bucket and URL stored on the tenant.
- * Pass fields via FormData: name, slug, region?, description?, coverImage?, logoImage?, primaryBrandColor? (#RRGGBB).
+ * Pass fields via FormData: name, slug, region?, description?, coverImage?, logoImage?, primaryBrandColor? (#RRGGBB),
+ * optional repeated galleryImage (File) for portfolio slideshow (JPEG/PNG/WebP, 5MB each, max 12).
  * Hotel admins are created separately from Superadmin → Admins → Create admin.
  */
 export async function createTenantAction(formData: FormData): Promise<CreateTenantResult> {
@@ -82,6 +92,22 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
     }
     if (!Object.keys(COVER_MIME).includes(logoFile.type)) {
       return { ok: false, error: "Logo must be JPEG, PNG, WebP, or GIF." };
+    }
+  }
+
+  const galleryEntries = formData
+    .getAll("galleryImage")
+    .filter((x): x is File => x instanceof File && x.size > 0);
+  if (galleryEntries.length > HOTEL_GALLERY_MAX_IMAGES) {
+    return {
+      ok: false,
+      error: `Property gallery is limited to ${HOTEL_GALLERY_MAX_IMAGES} photos. Remove some before continuing.`,
+    };
+  }
+  for (const f of galleryEntries) {
+    const gErr = validateHotelGalleryFile(f);
+    if (gErr) {
+      return { ok: false, error: gErr };
     }
   }
 
@@ -223,6 +249,50 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
       return {
         ok: false,
         error: toUserFacingError(logoUrlErr.message, { fallback: "We couldn’t save the logo link." }),
+      };
+    }
+  }
+
+  if (galleryEntries.length > 0) {
+    const uploadedGalleryPaths: string[] = [];
+    const urls: string[] = [];
+    for (const file of galleryEntries) {
+      const mime = file.type.toLowerCase();
+      const ext = hotelGalleryExtForMime(mime) ?? "jpg";
+      const path = `${tenantId}/${randomUUID()}.${ext}`;
+      const buf = new Uint8Array(await file.arrayBuffer());
+      const { error: gUpErr } = await supabase.storage.from(HOTEL_GALLERY_BUCKET).upload(path, buf, {
+        contentType: mime,
+        upsert: false,
+      });
+      if (gUpErr) {
+        for (const p of uploadedGalleryPaths) {
+          await supabase.storage.from(HOTEL_GALLERY_BUCKET).remove([p]);
+        }
+        await rollbackTenant(supabase, tenantId);
+        return {
+          ok: false,
+          error: toUserFacingError(gUpErr.message, {
+            fallback:
+              "We couldn’t upload property gallery photos. Try fewer or smaller files, or skip the gallery for now.",
+          }),
+        };
+      }
+      uploadedGalleryPaths.push(path);
+      const { data: gPub } = supabase.storage.from(HOTEL_GALLERY_BUCKET).getPublicUrl(path);
+      urls.push(gPub.publicUrl);
+    }
+    const { error: gUrlErr } = await supabase.from("tenants").update({ gallery_urls: urls }).eq("id", tenantId);
+    if (gUrlErr) {
+      for (const p of uploadedGalleryPaths) {
+        await supabase.storage.from(HOTEL_GALLERY_BUCKET).remove([p]);
+      }
+      await rollbackTenant(supabase, tenantId);
+      return {
+        ok: false,
+        error: isMissingDbColumnError(gUrlErr)
+          ? HOTEL_GALLERY_COLUMN_MISSING_MESSAGE
+          : toUserFacingError(gUrlErr.message, { fallback: "We couldn’t save the property gallery." }),
       };
     }
   }
