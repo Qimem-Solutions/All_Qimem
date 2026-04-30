@@ -11,6 +11,7 @@ import {
   type PayrollLineRow,
   type PayrollRunRow,
 } from "@/lib/queries/hrms-extended";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 const HR_PATHS = [
   "/hrms/time",
@@ -89,7 +90,7 @@ export async function createShiftAction(input: {
     })
     .select("id")
     .single();
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true, data: { id: data!.id } };
 }
@@ -98,7 +99,7 @@ export async function deleteShiftAction(input: { tenantId: string; shiftId: stri
   const gate = await dbOrAdmin(input.tenantId);
   if (!gate.ok) return { ok: false, error: gate.error };
   const { error } = await gate.db.from("shifts").delete().eq("id", input.shiftId).eq("tenant_id", input.tenantId);
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }
@@ -120,7 +121,7 @@ export async function recordPunchAction(input: {
     punch_type: t,
     source: "hrms",
   });
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }
@@ -144,7 +145,7 @@ export async function createLeaveRequestAction(input: {
     status: "pending",
     reason: input.reason?.trim() || null,
   });
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }
@@ -161,7 +162,7 @@ export async function updateLeaveStatusAction(input: {
     .update({ status: input.status })
     .eq("id", input.leaveId)
     .eq("tenant_id", input.tenantId);
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }
@@ -185,7 +186,7 @@ export async function createJobRequisitionAction(input: {
     })
     .select("id")
     .single();
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true, data: { id: data!.id } };
 }
@@ -202,7 +203,7 @@ export async function updateJobRequisitionStatusAction(input: {
     .update({ status: input.status })
     .eq("id", input.id)
     .eq("tenant_id", input.tenantId);
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }
@@ -230,7 +231,7 @@ export async function createJobCandidateAction(input: {
     })
     .select("id")
     .single();
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true, data: { id: data!.id } };
 }
@@ -248,7 +249,7 @@ async function createEmployeeFromCandidate(
     .eq("id", candidateId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
-  if (fetchErr) return { ok: false, error: fetchErr.message };
+  if (fetchErr) return { ok: false, error: toUserFacingError(fetchErr.message) };
   if (!row) return { ok: false, error: "Application not found." };
   if (row.hired_employee_id) {
     return { ok: true, data: { employeeId: row.hired_employee_id } };
@@ -259,7 +260,7 @@ async function createEmployeeFromCandidate(
     .select("id, title, department_id")
     .eq("id", row.requisition_id)
     .maybeSingle();
-  if (reqErr) return { ok: false, error: reqErr.message };
+  if (reqErr) return { ok: false, error: toUserFacingError(reqErr.message) };
   if (!req) return { ok: false, error: "Linked job posting is missing." };
 
   const email = row.email?.trim() || null;
@@ -292,14 +293,14 @@ async function createEmployeeFromCandidate(
     })
     .select("id")
     .single();
-  if (empErr) return { ok: false, error: empErr.message };
+  if (empErr) return { ok: false, error: toUserFacingError(empErr.message) };
 
   const { error: upErr } = await db
     .from("job_candidates")
     .update({ stage: "passed", hired_employee_id: emp!.id })
     .eq("id", candidateId)
     .eq("tenant_id", tenantId);
-  if (upErr) return { ok: false, error: upErr.message };
+  if (upErr) return { ok: false, error: toUserFacingError(upErr.message) };
 
   return { ok: true, data: { employeeId: emp!.id } };
 }
@@ -328,7 +329,7 @@ export async function updateJobCandidateStageAction(input: {
     .update({ stage })
     .eq("id", input.candidateId)
     .eq("tenant_id", input.tenantId);
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }
@@ -358,7 +359,7 @@ export async function submitRecruitmentApplicationAction(
     .eq("id", requisitionId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
-  if (reqErr) return { ok: false, error: reqErr.message };
+  if (reqErr) return { ok: false, error: toUserFacingError(reqErr.message) };
   if (!reqRow) return { ok: false, error: "Invalid job posting." };
   if (reqRow.status !== "open") {
     return { ok: false, error: "That posting is not open for applications." };
@@ -377,7 +378,7 @@ export async function submitRecruitmentApplicationAction(
     })
     .select("id")
     .single();
-  if (insErr) return { ok: false, error: insErr.message };
+  if (insErr) return { ok: false, error: toUserFacingError(insErr.message) };
 
   const candidateId = created!.id;
 
@@ -395,14 +396,14 @@ export async function submitRecruitmentApplicationAction(
     });
     if (upErr) {
       await gate.db.from("job_candidates").delete().eq("id", candidateId).eq("tenant_id", tenantId);
-      return { ok: false, error: upErr.message };
+      return { ok: false, error: toUserFacingError(upErr.message) };
     }
     const { error: pathErr } = await gate.db
       .from("job_candidates")
       .update({ cv_storage_path: path })
       .eq("id", candidateId)
       .eq("tenant_id", tenantId);
-    if (pathErr) return { ok: false, error: pathErr.message };
+    if (pathErr) return { ok: false, error: toUserFacingError(pathErr.message) };
   }
 
   revalidateHr();
@@ -420,11 +421,11 @@ export async function loadPayrollBundleAction(
     return { ok: false, error: "Not signed in or wrong property." };
   }
   const runsRes = await fetchPayrollRuns(tenantId);
-  if (runsRes.error) return { ok: false, error: runsRes.error };
+  if (runsRes.error) return { ok: false, error: toUserFacingError(runsRes.error) };
   const linesByRun: Record<string, PayrollLineRow[]> = {};
   for (const r of runsRes.rows) {
     const { rows, error } = await fetchPayrollLinesForRun(tenantId, r.id);
-    if (error) return { ok: false, error };
+    if (error) return { ok: false, error: toUserFacingError(error) };
     linesByRun[r.id] = rows;
   }
   return { ok: true, runs: runsRes.rows, linesByRun };
@@ -458,7 +459,7 @@ export async function createPayrollRunAction(input: {
     .eq("tenant_id", input.tenantId)
     .lte("period_start", periodEnd)
     .gte("period_end", periodStart);
-  if (overlapErr) return { ok: false, error: overlapErr.message };
+  if (overlapErr) return { ok: false, error: toUserFacingError(overlapErr.message) };
   const overlapIds = (overlappingRuns ?? []).map((r) => r.id);
   if (overlapIds.length > 0) {
     const { data: dupLines, error: dupErr } = await gate.db
@@ -467,14 +468,14 @@ export async function createPayrollRunAction(input: {
       .eq("tenant_id", input.tenantId)
       .in("employee_id", ids)
       .in("payroll_run_id", overlapIds);
-    if (dupErr) return { ok: false, error: dupErr.message };
+    if (dupErr) return { ok: false, error: toUserFacingError(dupErr.message) };
     if (dupLines && dupLines.length > 0) {
       const dupEmpIds = [...new Set(dupLines.map((l) => l.employee_id))];
       const { data: nameRows, error: nameErr } = await gate.db
         .from("employees")
         .select("id, full_name")
         .in("id", dupEmpIds);
-      if (nameErr) return { ok: false, error: nameErr.message };
+      if (nameErr) return { ok: false, error: toUserFacingError(nameErr.message) };
       const names = (nameRows ?? [])
         .map((e) => e.full_name?.trim() || e.id)
         .filter(Boolean)
@@ -498,7 +499,7 @@ export async function createPayrollRunAction(input: {
     })
     .select("id")
     .single();
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   const runId = data!.id;
 
   const { data: emps, error: empErr } = await gate.db
@@ -508,7 +509,7 @@ export async function createPayrollRunAction(input: {
     .in("id", ids);
   if (empErr) {
     await gate.db.from("payroll_runs").delete().eq("id", runId);
-    return { ok: false, error: empErr.message };
+    return { ok: false, error: toUserFacingError(empErr.message) };
   }
   if (!emps || emps.length !== ids.length) {
     await gate.db.from("payroll_runs").delete().eq("id", runId);
@@ -529,7 +530,7 @@ export async function createPayrollRunAction(input: {
   const { error: lineErr } = await gate.db.from("payroll_lines").insert(lineRows);
   if (lineErr) {
     await gate.db.from("payroll_runs").delete().eq("id", runId);
-    return { ok: false, error: lineErr.message };
+    return { ok: false, error: toUserFacingError(lineErr.message) };
   }
 
   revalidateHr();
@@ -554,7 +555,7 @@ export async function upsertPayrollLineAction(input: {
     .eq("id", input.payrollRunId)
     .eq("tenant_id", input.tenantId)
     .maybeSingle();
-  if (runErr) return { ok: false, error: runErr.message };
+  if (runErr) return { ok: false, error: toUserFacingError(runErr.message) };
   if (!run) return { ok: false, error: "Payroll run not found." };
 
   const pStart = run.period_start;
@@ -566,7 +567,7 @@ export async function upsertPayrollLineAction(input: {
     .neq("id", run.id)
     .lte("period_start", pEnd)
     .gte("period_end", pStart);
-  if (oErr) return { ok: false, error: oErr.message };
+  if (oErr) return { ok: false, error: toUserFacingError(oErr.message) };
   const otherIds = (otherRuns ?? []).map((r) => r.id);
   if (otherIds.length > 0) {
     const { data: existingLine, error: lineQErr } = await gate.db
@@ -576,7 +577,7 @@ export async function upsertPayrollLineAction(input: {
       .eq("employee_id", employeeId)
       .in("payroll_run_id", otherIds)
       .limit(1);
-    if (lineQErr) return { ok: false, error: lineQErr.message };
+    if (lineQErr) return { ok: false, error: toUserFacingError(lineQErr.message) };
     if (existingLine && existingLine.length > 0) {
       const rid = existingLine[0]!.payroll_run_id;
       const other = (otherRuns ?? []).find((r) => r.id === rid);
@@ -599,7 +600,7 @@ export async function upsertPayrollLineAction(input: {
     },
     { onConflict: "payroll_run_id,employee_id" },
   );
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }
@@ -616,7 +617,7 @@ export async function updatePayrollRunStatusAction(input: {
     .update({ status: input.status })
     .eq("id", input.runId)
     .eq("tenant_id", input.tenantId);
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }
@@ -650,7 +651,7 @@ export async function updateEmployeeRecordAction(input: {
     })
     .eq("id", input.employeeId)
     .eq("tenant_id", input.tenantId);
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }
@@ -693,7 +694,7 @@ export async function uploadEmployeePhotoAction(_prev: unknown, formData: FormDa
     contentType: file.type,
     upsert: false,
   });
-  if (upErr) return { ok: false, error: upErr.message };
+  if (upErr) return { ok: false, error: toUserFacingError(upErr.message) };
 
   const { error: dbErr } = await gate.db
     .from("employees")
@@ -702,7 +703,7 @@ export async function uploadEmployeePhotoAction(_prev: unknown, formData: FormDa
     .eq("tenant_id", tenantId);
   if (dbErr) {
     await gate.db.storage.from("employee-photos").remove([storagePath]);
-    return { ok: false, error: dbErr.message };
+    return { ok: false, error: toUserFacingError(dbErr.message) };
   }
 
   if (oldPath) {
@@ -724,7 +725,7 @@ export async function setEmployeeInactiveAction(input: {
     .update({ status: "inactive" })
     .eq("id", input.employeeId)
     .eq("tenant_id", input.tenantId);
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }
@@ -740,7 +741,7 @@ export async function setEmployeeActiveAction(input: {
     .update({ status: "active" })
     .eq("id", input.employeeId)
     .eq("tenant_id", input.tenantId);
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }
@@ -756,7 +757,7 @@ export async function deleteEmployeeRecordAction(input: {
     .delete()
     .eq("id", input.employeeId)
     .eq("tenant_id", input.tenantId);
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
   return { ok: true };
 }

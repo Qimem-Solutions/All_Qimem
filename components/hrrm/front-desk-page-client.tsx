@@ -12,6 +12,7 @@ import type { GuestDirectoryRow } from "@/lib/hrrm-guest-directory";
 import { nightsBetween } from "@/lib/hrrm-pricing";
 import { GuestDetailsDialog } from "@/components/hrrm/guest-details-dialog";
 import { Search, UserPlus } from "lucide-react";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 type GuestHit = { id: string; full_name: string; phone: string | null };
 
@@ -129,7 +130,7 @@ export function FrontDeskPageClient({
         } else {
           setHits([]);
           setSearchOpen(false);
-          setSearchErr(r.error);
+          setSearchErr(toUserFacingError(r.error));
         }
       })();
     }, 350);
@@ -163,7 +164,7 @@ export function FrontDeskPageClient({
       setRoomsLoading(false);
       if (!result.ok) {
         setRoomOptions([]);
-        setRoomsErr(result.error);
+        setRoomsErr(toUserFacingError(result.error));
         return;
       }
       setRoomOptions(result.rows);
@@ -218,16 +219,16 @@ export function FrontDeskPageClient({
       const r = await registerGuestAtFrontDeskAction(fd);
       setSaving(false);
       if (!r.ok) {
-        setFormErr(r.error);
+        setFormErr(toUserFacingError(r.error));
         return;
       }
       if (r.profileLimited) {
         setFormNotice(
-          "Guest was saved with name only. Extended columns (age, party, ID, payment) are missing on the database. Run supabase/migrations/20260429120000_ensure_guests_extended_columns.sql in the Supabase SQL Editor (date prefix 20260429, not 202404), then register again to capture the full profile.",
+          "Guest was saved with basic details only. Some profile fields couldn’t be stored yet—ask your administrator to update the guest database, then edit this guest to add the rest.",
         );
       } else if (r.idImageNotSaved) {
         setFormNotice(
-          "Guest was saved, but the ID image could not be linked (national_id_image_path missing or cache stale). Re-upload after running 20260429120000_ensure_guests_extended_columns.sql in the Supabase SQL Editor.",
+          "Guest was saved, but the ID photo couldn’t be attached yet. Try uploading again later or ask your administrator to verify guest storage is enabled.",
         );
       } else {
         setFormNotice(null);

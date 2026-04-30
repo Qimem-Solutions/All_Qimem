@@ -7,6 +7,7 @@ import { DEFAULT_STAFF_PASSWORD } from "@/lib/constants/staff";
 import type { ServiceAccessLevel } from "@/lib/auth/service-access";
 import { canManageHrStaff } from "@/lib/auth/can-manage-hr-staff";
 import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -90,7 +91,7 @@ export async function createStaffUserAction(formData: FormData): Promise<CreateS
     return {
       ok: false,
       error:
-        "SUPABASE_SERVICE_ROLE_KEY is missing in web/.env.local. Add it from Supabase → Settings → API.",
+        "This action isn’t available because the server isn’t fully configured. Please contact your platform administrator.",
     };
   }
 
@@ -140,16 +141,18 @@ export async function createStaffUserAction(formData: FormData): Promise<CreateS
     if (msg.toLowerCase().includes("already") || msg.toLowerCase().includes("registered")) {
       return {
         ok: false,
-        error:
-          "That email is already registered. Use a different email or remove the user in Supabase.",
+        error: "That email is already registered. Try another email address.",
       };
     }
-    return { ok: false, error: createErr.message };
+    return { ok: false, error: toUserFacingError(createErr.message) };
   }
 
   const userId = created.user?.id;
   if (!userId) {
-    return { ok: false, error: "Auth user was not returned." };
+    return {
+      ok: false,
+      error: "Something went wrong while creating the account. Please try again or contact support.",
+    };
   }
 
   const profileRow = {
@@ -169,7 +172,12 @@ export async function createStaffUserAction(formData: FormData): Promise<CreateS
 
   if (profErr) {
     await admin.auth.admin.deleteUser(userId);
-    return { ok: false, error: `Profile failed: ${profErr.message}` };
+    return {
+      ok: false,
+      error: toUserFacingError(profErr.message, {
+        fallback: "We couldn’t save this person’s profile. Please try again.",
+      }),
+    };
   }
 
   const employeePayload: Record<string, unknown> = {
@@ -194,12 +202,12 @@ export async function createStaffUserAction(formData: FormData): Promise<CreateS
 
   if (empErr || !empRow) {
     await admin.auth.admin.deleteUser(userId);
-    const raw = empErr?.message ?? "unknown";
-    const schemaHint =
-      /user_id|schema cache|monthly_salary/i.test(raw)
-        ? " Run the latest Supabase migrations (employees.monthly_salary_cents). If it still errors: `NOTIFY pgrst, 'reload schema';`"
-        : "";
-    return { ok: false, error: `Employee record failed: ${raw}${schemaHint}` };
+    return {
+      ok: false,
+      error: toUserFacingError(empErr?.message, {
+        fallback: "We couldn’t save the employee record. Please try again or contact support.",
+      }),
+    };
   }
 
   if (photo instanceof File && photo.size > 0) {
@@ -224,7 +232,7 @@ export async function createStaffUserAction(formData: FormData): Promise<CreateS
     if (upErr) {
       await admin.from("employees").delete().eq("id", empRow.id);
       await admin.auth.admin.deleteUser(userId);
-      return { ok: false, error: upErr.message };
+      return { ok: false, error: toUserFacingError(upErr.message) };
     }
     const { error: phErr } = await admin
       .from("employees")
@@ -235,7 +243,7 @@ export async function createStaffUserAction(formData: FormData): Promise<CreateS
       await admin.storage.from("employee-photos").remove([storagePath]);
       await admin.from("employees").delete().eq("id", empRow.id);
       await admin.auth.admin.deleteUser(userId);
-      return { ok: false, error: phErr.message };
+      return { ok: false, error: toUserFacingError(phErr.message) };
     }
   }
 
@@ -259,12 +267,12 @@ export async function createStaffUserAction(formData: FormData): Promise<CreateS
   if (roleErr) {
     await admin.from("employees").delete().eq("id", empRow.id);
     await admin.auth.admin.deleteUser(userId);
-    const raw = roleErr.message;
-    const schemaHint =
-      /access_level|schema cache|user_roles/i.test(raw)
-        ? " Run `supabase/migrations/20260418150000_ensure_user_roles_access_level.sql` in Supabase → SQL Editor (or `supabase db push`). Then try `NOTIFY pgrst, 'reload schema';` if the API still errors."
-        : "";
-    return { ok: false, error: `Access rules failed: ${raw}${schemaHint}` };
+    return {
+      ok: false,
+      error: toUserFacingError(roleErr.message, {
+        fallback: "We couldn’t assign module access for this person. Please contact support.",
+      }),
+    };
   }
 
   revalidateHrSurface();
@@ -302,7 +310,7 @@ export async function createDepartmentAction(input: { name: string }): Promise<C
     return {
       ok: false,
       error:
-        "SUPABASE_SERVICE_ROLE_KEY is missing in web/.env.local. Add it from Supabase → Settings → API (same as creating staff).",
+        "This action isn’t available because the server isn’t fully configured. Please contact your platform administrator.",
     };
   }
 
@@ -321,7 +329,7 @@ export async function createDepartmentAction(input: { name: string }): Promise<C
   });
 
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toUserFacingError(error.message) };
   }
 
   revalidateHrSurface();

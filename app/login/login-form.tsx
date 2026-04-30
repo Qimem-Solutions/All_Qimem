@@ -16,6 +16,7 @@ import {
 } from "@/lib/constants/passwords";
 import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
 import { cn } from "@/lib/utils";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 import type { TenantLoginBranding } from "@/lib/queries/tenant-branding-public";
 import { tenantBrandInlineStyle } from "@/lib/theme/tenant-brand-color";
 
@@ -63,7 +64,7 @@ const copy: Record<
       "Your account has no profile yet. Ask an administrator to provision your access.",
     genericError: "Something went wrong.",
     invalidCredentialsHint:
-      "Invalid credentials. Migrations only touch the database — they do not register a password in Auth. Add your project's service role key to .env.local as SUPABASE_SERVICE_ROLE_KEY, then run: npm run seed:superadmin (from the web folder). Or create the user manually under Supabase → Authentication → Users.",
+      "We couldn’t sign you in with those details. Check your email and password, or ask your administrator to confirm your account is set up.",
   },
   am: {
     unifiedSignIn: "የተዋሃደ ምልክት ግባ",
@@ -85,7 +86,7 @@ const copy: Record<
       "ለመለያዎ መገለጫ የለም። የመዳረሻ ማብቃያ እንዲስጥ አስተዳዳሪ ያግኙ።",
     genericError: "ስህተት ተፈጥሯል።",
     invalidCredentialsHint:
-      "የመግባት ዝርዝሮች ትክክል አይደሉም። የተጠቃሚውን በአስተዳዳሪ ይፍጠሩ ወይም በ Supabase Authentication ይመዝገቡ።",
+      "የመግባት ዝርዝሮች አልተቀበሉም። ኢሜይል እና የይለፍ ቃል ይፈትሹ፣ ወይም መለያዎ እንዲፈጠር አስተዳዳሪ ያግኙ።",
   },
 };
 
@@ -163,15 +164,10 @@ export function LoginForm({
         password,
       });
       if (signError) {
-        const raw = signError.message;
         const invalid =
-          /invalid login|invalid credentials|email not confirmed/i.test(raw);
+          /invalid login|invalid credentials|email not confirmed/i.test(signError.message);
         setError(
-          invalid
-            ? lang === "am"
-              ? `${raw} ${t.invalidCredentialsHint}`
-              : `${raw} ${copy.en.invalidCredentialsHint}`
-            : raw,
+          invalid ? t.invalidCredentialsHint : toUserFacingError(signError.message),
         );
         setLoading(false);
         return;
@@ -204,7 +200,7 @@ export function LoginForm({
 
       if (profileError) {
         await supabase.auth.signOut();
-        setError(profileError.message);
+        setError(toUserFacingError(profileError.message));
         setLoading(false);
         return;
       }
@@ -233,7 +229,9 @@ export function LoginForm({
       router.push(dashboardPathForRole(actualRole));
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.genericError);
+      setError(
+        toUserFacingError(err instanceof Error ? err.message : null, { fallback: t.genericError }),
+      );
     } finally {
       setLoading(false);
     }
@@ -258,11 +256,15 @@ export function LoginForm({
         },
       });
       if (oauthError) {
-        setError(oauthError.message);
+        setError(toUserFacingError(oauthError.message));
         setOauthLoading(false);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Google sign-in failed.");
+      setError(
+        toUserFacingError(err instanceof Error ? err.message : null, {
+          fallback: "Google sign-in didn’t complete. Please try again.",
+        }),
+      );
       setOauthLoading(false);
     }
   }

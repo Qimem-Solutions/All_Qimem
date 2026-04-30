@@ -5,6 +5,7 @@ import { getUserContext } from "@/lib/queries/context";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { deleteEmployeeRecordAction, updateEmployeeRecordAction } from "@/lib/actions/hrms-modules";
 import type { ServiceAccessLevel } from "@/lib/auth/service-access";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 const RELEVANT = ["/hotel/users", "/hrms/employees", "/hotel/dashboard", "/hrms/dashboard"] as const;
 
@@ -26,7 +27,7 @@ async function requireHotelAdminService() {
   try {
     admin = createServiceRoleClient();
   } catch {
-    return { ok: false as const, error: "Add SUPABASE_SERVICE_ROLE_KEY in web/.env.local." };
+    return { ok: false as const, error: "This action isn’t available because the server isn’t fully configured. Contact your platform administrator." };
   }
   return { ok: true as const, ctx, admin, tenantId: ctx.tenantId };
 }
@@ -47,7 +48,7 @@ export async function updateDepartmentAction(input: {
     .eq("id", input.departmentId)
     .eq("tenant_id", g.tenantId);
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toUserFacingError(error.message) };
   }
   revalidate();
   return { ok: true };
@@ -69,11 +70,10 @@ export async function setDepartmentActiveAction(input: {
       return {
         ok: false,
         error:
-          "Database is missing column departments.is_active. In Supabase → SQL Editor, run: " +
-          "alter table public.departments add column if not exists is_active boolean not null default true;",
+          "Department active/inactive isn’t available yet on your system. Please contact your administrator.",
       };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: toUserFacingError(error.message) };
   }
   revalidate();
   return { ok: true };
@@ -89,7 +89,7 @@ export async function deleteDepartmentAction(input: { departmentId: string }): P
     .eq("tenant_id", g.tenantId)
     .eq("department_id", input.departmentId);
   if (e1) {
-    return { ok: false, error: e1.message };
+    return { ok: false, error: toUserFacingError(e1.message) };
   }
   if ((empN ?? 0) > 0) {
     return {
@@ -104,7 +104,7 @@ export async function deleteDepartmentAction(input: { departmentId: string }): P
     .eq("tenant_id", g.tenantId)
     .eq("department_id", input.departmentId);
   if (e2) {
-    return { ok: false, error: e2.message };
+    return { ok: false, error: toUserFacingError(e2.message) };
   }
   if ((reqN ?? 0) > 0) {
     return {
@@ -119,7 +119,7 @@ export async function deleteDepartmentAction(input: { departmentId: string }): P
     .eq("id", input.departmentId)
     .eq("tenant_id", g.tenantId);
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toUserFacingError(error.message) };
   }
   revalidate();
   return { ok: true };
@@ -166,14 +166,14 @@ export async function updateHotelStaffUserAction(input: {
     .eq("id", input.userId)
     .eq("tenant_id", g.tenantId);
   if (pErr) {
-    return { ok: false, error: pErr.message };
+    return { ok: false, error: toUserFacingError(pErr.message) };
   }
 
   const { error: mErr } = await g.admin.auth.admin.updateUserById(input.userId, {
     user_metadata: { full_name: fullName },
   });
   if (mErr) {
-    return { ok: false, error: mErr.message };
+    return { ok: false, error: toUserFacingError(mErr.message) };
   }
 
   const { error: rErr } = await g.admin.from("user_roles").upsert(
@@ -194,7 +194,7 @@ export async function updateHotelStaffUserAction(input: {
     { onConflict: "user_id,tenant_id,service" },
   );
   if (rErr) {
-    return { ok: false, error: rErr.message };
+    return { ok: false, error: toUserFacingError(rErr.message) };
   }
 
   if (input.employee) {
@@ -274,7 +274,7 @@ export async function deactivateHotelStaffUserAction(input: { userId: string }):
       .eq("id", emp.id)
       .eq("tenant_id", g.tenantId);
     if (iErr) {
-      return { ok: false, error: iErr.message };
+      return { ok: false, error: toUserFacingError(iErr.message) };
     }
   }
 
@@ -282,7 +282,7 @@ export async function deactivateHotelStaffUserAction(input: { userId: string }):
     ban_duration: "876000h",
   });
   if (bErr) {
-    return { ok: false, error: bErr.message };
+    return { ok: false, error: toUserFacingError(bErr.message) };
   }
 
   revalidate();
@@ -319,7 +319,7 @@ export async function activateHotelStaffUserAction(input: { userId: string }): P
       .eq("id", emp.id)
       .eq("tenant_id", g.tenantId);
     if (iErr) {
-      return { ok: false, error: iErr.message };
+      return { ok: false, error: toUserFacingError(iErr.message) };
     }
   }
 
@@ -327,7 +327,7 @@ export async function activateHotelStaffUserAction(input: { userId: string }): P
     ban_duration: "none",
   });
   if (bErr) {
-    return { ok: false, error: bErr.message };
+    return { ok: false, error: toUserFacingError(bErr.message) };
   }
 
   revalidate();
@@ -361,7 +361,7 @@ export async function deleteHotelStaffUserAction(input: { userId: string }): Pro
       .eq("tenant_id", g.tenantId)
       .eq("global_role", "hotel_admin");
     if (aErr) {
-      return { ok: false, error: aErr.message };
+      return { ok: false, error: toUserFacingError(aErr.message) };
     }
     if ((others ?? []).length <= 1) {
       return { ok: false, error: "Keep at least one hotel administrator for this property." };
@@ -386,7 +386,7 @@ export async function deleteHotelStaffUserAction(input: { userId: string }): Pro
 
   const { error: delAuth } = await g.admin.auth.admin.deleteUser(input.userId);
   if (delAuth) {
-    return { ok: false, error: delAuth.message };
+    return { ok: false, error: toUserFacingError(delAuth.message) };
   }
   revalidate();
   return { ok: true };

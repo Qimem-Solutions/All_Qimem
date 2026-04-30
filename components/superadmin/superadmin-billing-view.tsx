@@ -310,9 +310,9 @@ export function SuperadminBillingView({
                 {billingRows.length === 0 && !billingError ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-12 text-center text-sm text-zinc-500">
-                      No billing ledger rows yet. Run the{" "}
-                      <span className="font-mono text-xs">subscription_billing_events</span> migration, or
-                      create tenants / extend periods to populate this list.
+                      No billing activity yet. Complete tenant setup or extend a subscription period to see
+                      invoices here. If this stays empty, ask your platform administrator to verify billing is
+                      enabled for your environment.
                     </td>
                   </tr>
                 ) : filteredBilling.length === 0 ? (

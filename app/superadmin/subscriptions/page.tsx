@@ -11,6 +11,7 @@ import { fetchPendingPlanChangeRequestsForSuperadmin } from "@/lib/queries/plan-
 import { SuperadminPendingPlanRequests } from "@/components/superadmin/superadmin-pending-plan-requests";
 import { SuperadminSubscriptionsTable } from "@/components/superadmin/superadmin-subscriptions-table";
 import { sweepAllExpiredSubscriptions } from "@/lib/subscriptions/subscription-expiry";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 const productPlans = [
   {
@@ -51,13 +52,13 @@ export default async function SubscriptionsPage() {
           Subscriptions & entitlements
         </h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Live subscription rows from Supabase; plan cards describe typical entitlements.
+          Live subscription rows for each property; plan cards describe typical entitlements.
         </p>
       </div>
 
       {listErr || planErr ? (
         <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-200">
-          {[listErr, planErr].filter(Boolean).join(" ")}
+          {[listErr, planErr].filter((x): x is string => Boolean(x)).map((e) => toUserFacingError(e)).join(" ")}
         </p>
       ) : null}
 
@@ -66,18 +67,13 @@ export default async function SubscriptionsPage() {
           <CardTitle>Plan change requests</CardTitle>
           <CardDescription>
             Hotels use <span className="font-semibold text-zinc-300">Request plan change</span> on their
-            subscription page. Approve to update their row in <code className="text-xs">subscriptions</code>
-            , or decline to close the request without changing billing.
+            subscription page. Approve to update their plan and billing, or decline to close the request
+            without changing billing.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {pendingErr ? (
-            <p className="text-sm text-amber-200">
-              {pendingErr}
-              {pendingErr.toLowerCase().includes("relation") || pendingErr.includes("does not exist")
-                ? " — Run the migration that creates subscription_plan_requests."
-                : null}
-            </p>
+            <p className="text-sm text-amber-200">{toUserFacingError(pendingErr)}</p>
           ) : (
             <SuperadminPendingPlanRequests rows={pendingRequests} />
           )}

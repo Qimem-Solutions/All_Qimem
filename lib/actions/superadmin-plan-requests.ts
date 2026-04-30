@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getUserContext } from "@/lib/queries/context";
 import { createClient } from "@/lib/supabase/server";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 type Result = { ok: true; message: string } | { ok: false; error: string };
 
@@ -31,7 +32,7 @@ export async function approvePlanChangeRequestAction(requestId: string): Promise
     .maybeSingle();
 
   if (fetchErr) {
-    return { ok: false, error: fetchErr.message };
+    return { ok: false, error: toUserFacingError(fetchErr.message) };
   }
   if (!req) {
     return { ok: false, error: "Request not found or already resolved." };
@@ -47,7 +48,7 @@ export async function approvePlanChangeRequestAction(requestId: string): Promise
     .select("id");
 
   if (subErr) {
-    return { ok: false, error: subErr.message };
+    return { ok: false, error: toUserFacingError(subErr.message) };
   }
   if (!subRows?.length) {
     return {
@@ -68,7 +69,7 @@ export async function approvePlanChangeRequestAction(requestId: string): Promise
     .eq("status", "pending");
 
   if (reqErr) {
-    return { ok: false, error: reqErr.message };
+    return { ok: false, error: toUserFacingError(reqErr.message) };
   }
 
   revalidateAll();
@@ -98,7 +99,7 @@ export async function rejectPlanChangeRequestAction(requestId: string): Promise<
     .select("id");
 
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toUserFacingError(error.message) };
   }
   if (!data?.length) {
     return { ok: false, error: "Request not found or already resolved." };

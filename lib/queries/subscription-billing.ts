@@ -1,3 +1,4 @@
+import { toUserFacingError } from "@/lib/errors/user-facing";
 import { createClient } from "@/lib/supabase/server";
 import { getUserContext } from "@/lib/queries/context";
 
@@ -30,15 +31,7 @@ export async function fetchSubscriptionBillingEventsForSuperadmin(): Promise<{
     .order("created_at", { ascending: false });
 
   if (evErr) {
-    const msg = evErr.message ?? "";
-    if (msg.includes("relation") || msg.includes("does not exist") || msg.includes("schema cache")) {
-      return {
-        rows: [],
-        error:
-          "Billing ledger table missing — run migration subscription_billing_events (subscription_billing_events).",
-      };
-    }
-    return { rows: [], error: msg };
+    return { rows: [], error: toUserFacingError(evErr.message) };
   }
 
   const tenantIds = [...new Set((events ?? []).map((e) => e.tenant_id).filter(Boolean))] as string[];

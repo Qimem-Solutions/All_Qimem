@@ -9,6 +9,7 @@ import {
   billingServiceMonthFromPeriodEndIso,
   subscriptionPeriodEndFromNow,
 } from "@/lib/subscriptions/billing-period";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 export type CreateTenantResult =
   | { ok: true; tenantId: string }
@@ -116,7 +117,7 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
         error: `The subdomain "${slug}" is already taken. Choose another.`,
       };
     }
-    return { ok: false, error: msg };
+    return { ok: false, error: toUserFacingError(msg) };
   }
 
   const tenantId = tenant.id;
@@ -135,7 +136,12 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
 
   if (subErr || !subRow) {
     await rollbackTenant(supabase, tenantId);
-    return { ok: false, error: subErr?.message ?? "Subscription insert failed." };
+    return {
+      ok: false,
+      error: toUserFacingError(subErr?.message, {
+        fallback: "We couldn’t finish setting up billing for this property.",
+      }),
+    };
   }
 
   const { error: billErr } = await supabase.from("subscription_billing_events").insert({
@@ -148,14 +154,7 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
 
   if (billErr) {
     await rollbackTenant(supabase, tenantId);
-    return {
-      ok: false,
-      error:
-        billErr.message +
-        (billErr.message.includes("relation") || billErr.message.includes("does not exist")
-          ? " Run migration subscription_billing_events."
-          : ""),
-    };
+    return { ok: false, error: toUserFacingError(billErr.message) };
   }
 
   const { error: entErr } = await supabase.from("tenant_entitlements").insert({
@@ -165,7 +164,7 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
 
   if (entErr) {
     await rollbackTenant(supabase, tenantId);
-    return { ok: false, error: entErr.message };
+    return { ok: false, error: toUserFacingError(entErr.message) };
   }
 
   if (coverFile) {
@@ -178,7 +177,12 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
     });
     if (upErr) {
       await rollbackTenant(supabase, tenantId);
-      return { ok: false, error: `Image upload failed: ${upErr.message}` };
+      return {
+        ok: false,
+        error: toUserFacingError(upErr.message, {
+          fallback: "We couldn’t upload the hotel image. Try another file or a smaller size.",
+        }),
+      };
     }
     const { data: pub } = supabase.storage.from("tenant-covers").getPublicUrl(path);
     const { error: urlErr } = await supabase
@@ -187,7 +191,10 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
       .eq("id", tenantId);
     if (urlErr) {
       await rollbackTenant(supabase, tenantId);
-      return { ok: false, error: urlErr.message };
+      return {
+        ok: false,
+        error: toUserFacingError(urlErr.message, { fallback: "We couldn’t save the hotel image link." }),
+      };
     }
   }
 
@@ -201,7 +208,10 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
     });
     if (logoUpErr) {
       await rollbackTenant(supabase, tenantId);
-      return { ok: false, error: `Logo upload failed: ${logoUpErr.message}` };
+      return {
+        ok: false,
+        error: toUserFacingError(logoUpErr.message, { fallback: "We couldn’t upload the logo. Try another file or a smaller size." }),
+      };
     }
     const { data: logoPub } = supabase.storage.from("tenant-covers").getPublicUrl(path);
     const { error: logoUrlErr } = await supabase
@@ -210,7 +220,10 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
       .eq("id", tenantId);
     if (logoUrlErr) {
       await rollbackTenant(supabase, tenantId);
-      return { ok: false, error: logoUrlErr.message };
+      return {
+        ok: false,
+        error: toUserFacingError(logoUrlErr.message, { fallback: "We couldn’t save the logo link." }),
+      };
     }
   }
 
@@ -288,7 +301,7 @@ export async function updateTenantAction(formData: FormData): Promise<ActionOk> 
     if (updErr.message.includes("duplicate") || updErr.message.includes("unique")) {
       return { ok: false, error: `The subdomain "${slug}" is already taken.` };
     }
-    return { ok: false, error: updErr.message };
+    return { ok: false, error: toUserFacingError(updErr.message) };
   }
 
   if (coverFile) {
@@ -300,7 +313,12 @@ export async function updateTenantAction(formData: FormData): Promise<ActionOk> 
       upsert: true,
     });
     if (upErr) {
-      return { ok: false, error: `Image upload failed: ${upErr.message}` };
+      return {
+        ok: false,
+        error: toUserFacingError(upErr.message, {
+          fallback: "We couldn’t upload the hotel image. Try another file or a smaller size.",
+        }),
+      };
     }
     const { data: pub } = supabase.storage.from("tenant-covers").getPublicUrl(path);
     const { error: urlErr } = await supabase
@@ -308,7 +326,10 @@ export async function updateTenantAction(formData: FormData): Promise<ActionOk> 
       .update({ cover_image_url: pub.publicUrl })
       .eq("id", tenantId);
     if (urlErr) {
-      return { ok: false, error: urlErr.message };
+      return {
+        ok: false,
+        error: toUserFacingError(urlErr.message, { fallback: "We couldn’t save the hotel image link." }),
+      };
     }
   }
 
@@ -338,7 +359,7 @@ export async function setTenantSubscriptionStatusAction(input: {
     .eq("tenant_id", input.tenantId)
     .limit(1);
   if (selErr) {
-    return { ok: false, error: selErr.message };
+    return { ok: false, error: toUserFacingError(selErr.message) };
   }
   if (!rows?.length) {
     return { ok: false, error: "This property has no subscription row. Create or link billing first." };
@@ -349,7 +370,7 @@ export async function setTenantSubscriptionStatusAction(input: {
     .update({ status: input.status })
     .eq("tenant_id", input.tenantId);
   if (upErr) {
-    return { ok: false, error: upErr.message };
+    return { ok: false, error: toUserFacingError(upErr.message) };
   }
   revalidateTenantAdmin();
   return { ok: true };
@@ -378,7 +399,7 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionOk> {
     return {
       ok: false,
       error:
-        "Server missing SUPABASE_SERVICE_ROLE_KEY (required to unlink staff profiles when deleting a tenant).",
+        "This action isn’t available because the server isn’t fully configured. Please contact your platform administrator.",
     };
   }
 
@@ -387,7 +408,7 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionOk> {
     .select("id", { count: "exact", head: true })
     .eq("tenant_id", tenantId);
   if (cErr) {
-    return { ok: false, error: cErr.message };
+    return { ok: false, error: toUserFacingError(cErr.message) };
   }
   if ((nProfiles ?? 0) > 0) {
     const { error: uErr } = await admin
@@ -395,7 +416,7 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionOk> {
       .update({ tenant_id: null })
       .eq("tenant_id", tenantId);
     if (uErr) {
-      return { ok: false, error: uErr.message };
+      return { ok: false, error: toUserFacingError(uErr.message) };
     }
   }
 
@@ -407,7 +428,7 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionOk> {
 
   const { error: dErr } = await admin.from("tenants").delete().eq("id", tenantId);
   if (dErr) {
-    return { ok: false, error: dErr.message };
+    return { ok: false, error: toUserFacingError(dErr.message) };
   }
   revalidateTenantAdmin();
   return { ok: true };

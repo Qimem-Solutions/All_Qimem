@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserContext } from "@/lib/queries/context";
 import { HOTEL_CURRENCIES } from "@/lib/constants/hotel-settings";
 import { normalizePrimaryBrandHex } from "@/lib/theme/tenant-brand-color";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 const CURRENCY_SET = new Set(HOTEL_CURRENCIES.map((c) => c.value));
 
@@ -57,7 +58,7 @@ export async function updateHotelGeneralSettings(
     .update({ name, region, timezone, default_currency })
     .eq("id", tenantId);
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toUserFacingError(error.message) };
   }
   revalidatePath("/hotel/settings");
   revalidatePath("/hotel/dashboard");
@@ -90,7 +91,7 @@ export async function updateHotelBrandingSettings(
     .update({ description, cover_image_url, logo_url, primary_brand_color })
     .eq("id", tenantId);
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toUserFacingError(error.message) };
   }
   revalidatePath("/hotel/settings");
   revalidatePath("/hotel/dashboard");
@@ -146,7 +147,7 @@ export async function updateHotelContactSettings(
     })
     .eq("id", tenantId);
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toUserFacingError(error.message) };
   }
   revalidatePath("/hotel/settings");
   return { ok: true, message: "Contact & policy details saved." };

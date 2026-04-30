@@ -5,6 +5,7 @@ import { getUserContext } from "@/lib/queries/context";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { reactivateTenantUsersAfterSubscriptionRenewal } from "@/lib/subscriptions/subscription-expiry";
 import { billingServiceMonthFromPeriodEndIso } from "@/lib/subscriptions/billing-period";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 const PLANS = new Set(["basic", "pro", "advanced"]);
 
@@ -44,7 +45,7 @@ export async function superadminUpdateSubscriptionPlanAction(input: {
     return {
       ok: false,
       error:
-        "SUPABASE_SERVICE_ROLE_KEY is missing in web/.env.local — required to update subscriptions reliably.",
+        "This action isn’t available because the server isn’t fully configured. Please contact your platform administrator.",
     };
   }
 
@@ -55,12 +56,15 @@ export async function superadminUpdateSubscriptionPlanAction(input: {
     .maybeSingle();
 
   if (fetchErr || !row) {
-    return { ok: false, error: fetchErr?.message ?? "Subscription not found." };
+    return {
+      ok: false,
+      error: fetchErr ? toUserFacingError(fetchErr.message) : "We couldn’t find that subscription.",
+    };
   }
 
   const { error: updErr } = await sr.from("subscriptions").update({ plan }).eq("id", subscriptionId);
   if (updErr) {
-    return { ok: false, error: updErr.message };
+    return { ok: false, error: toUserFacingError(updErr.message) };
   }
 
   revalidateSubscriptionSurfaces();
@@ -91,7 +95,7 @@ export async function superadminExtendSubscriptionPeriodOneMonthAction(
     return {
       ok: false,
       error:
-        "SUPABASE_SERVICE_ROLE_KEY is missing in web/.env.local — required to extend periods and reactivate users.",
+        "This action isn’t available because the server isn’t fully configured. Please contact your platform administrator.",
     };
   }
 
@@ -102,7 +106,10 @@ export async function superadminExtendSubscriptionPeriodOneMonthAction(
     .maybeSingle();
 
   if (fetchErr || !sub) {
-    return { ok: false, error: fetchErr?.message ?? "Subscription not found." };
+    return {
+      ok: false,
+      error: fetchErr ? toUserFacingError(fetchErr.message) : "We couldn’t find that subscription.",
+    };
   }
 
   const tenantId = sub.tenant_id as string;
@@ -133,15 +140,7 @@ export async function superadminExtendSubscriptionPeriodOneMonthAction(
     .single();
 
   if (billErr) {
-    const msg = billErr.message ?? "";
-    return {
-      ok: false,
-      error:
-        msg +
-        (msg.includes("relation") || msg.includes("does not exist")
-          ? " Run migration subscription_billing_events."
-          : ""),
-    };
+    return { ok: false, error: toUserFacingError(billErr.message) };
   }
 
   const { error: updErr } = await sr
@@ -155,7 +154,7 @@ export async function superadminExtendSubscriptionPeriodOneMonthAction(
   if (updErr) {
     const bid = billIns?.id as string | undefined;
     if (bid) await sr.from("subscription_billing_events").delete().eq("id", bid);
-    return { ok: false, error: updErr.message };
+    return { ok: false, error: toUserFacingError(updErr.message) };
   }
 
   await reactivateTenantUsersAfterSubscriptionRenewal(sr, tenantId);
