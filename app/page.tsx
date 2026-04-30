@@ -39,7 +39,7 @@ export default function WelcomePage() {
               All Qimem
             </p>
             <p className="text-xs text-foreground/75 dark:text-zinc-500">
-              Luxury hospitality management
+              Luxury hotel management, simplified and digital
             </p>
           </div>
         </div>
@@ -56,14 +56,15 @@ export default function WelcomePage() {
 
       <main className="relative z-10 mx-auto flex max-w-4xl flex-col items-center px-6 pb-24 pt-10 text-center sm:pt-16">
         <p className="welcome-animate-fade-up welcome-delay-1 text-[11px] font-semibold uppercase tracking-[0.4em] text-gold/90">
-          Sovereign operations suite
+          All Qimem luxury hotel management
         </p>
         <h1 className="welcome-animate-fade-up welcome-delay-2 mt-6 max-w-3xl text-4xl font-semibold leading-[1.1] tracking-tight text-foreground [font-family:var(--font-outfit),system-ui,sans-serif] dark:text-white sm:text-5xl md:text-6xl">
-          Welcome to a single canvas for your property
+          Make every hotel simpler to run and fully digital end to end
         </h1>
         <p className="welcome-animate-fade-up welcome-delay-3 mx-auto mt-6 max-w-2xl text-base leading-relaxed text-foreground/85 dark:text-zinc-400 sm:text-lg">
-          Orchestrate reservations, rooms, rates, and your people from one secure platform.
-          After you sign in, you&apos;ll land in the workspace tied to your account.
+          All Qimem unifies reservations, rooms, rates, and your teams in one secure platform so
+          management stays straightforward. Digitize workflows everywhere—from the front desk to the
+          back office—and sign in to reach the workspace matched to your role and property.
         </p>
 
         <div className="welcome-animate-fade-up welcome-delay-4 mt-12 flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
@@ -75,15 +76,21 @@ export default function WelcomePage() {
             <ArrowRight className="h-5 w-5 transition-transform duration-300 group-hover:translate-x-1" />
           </Link>
           <p className="max-w-xs text-left text-xs leading-relaxed text-foreground/70 dark:text-zinc-500 sm:max-w-sm">
-            Use the email and password you were given. Routing is based on your profile in
-            the system.
+            Sign in with your credentials; you&apos;ll be routed to the right digital workspace for your
+            hotel or platform role.
           </p>
         </div>
 
         <div className="mt-20 grid w-full max-w-3xl gap-4 border-t border-zinc-200 pt-12 dark:border-white/5 sm:grid-cols-2">
           {[
-            ["Multi-tenant platform", "Isolate each property with tenant-scoped data and entitlements."],
-            ["HRRM & HRMS", "Reservations and people workflows, gated by subscription tier."],
+            [
+              "Simple management, every property",
+              "Each hotel stays organized in its own space—with clear data, roles, and controls so operations never feel scattered.",
+            ],
+            [
+              "Digital everywhere",
+              "Cloud-native tools for rooms, rates, guests, and staff: fewer manual steps, more consistency across every shift and department.",
+            ],
           ].map(([title, body], i) => (
             <div
               key={title}
@@ -100,7 +107,7 @@ export default function WelcomePage() {
 
       <footer className="welcome-animate-fade-in welcome-delay-7 relative z-10 border-t border-zinc-200 bg-white/60 px-6 py-6 text-center text-[11px] text-zinc-500 dark:border-white/5 dark:bg-black/40 dark:text-zinc-600">
         <span className="text-zinc-600 dark:text-zinc-500">Powered by </span>
-        <span className="text-gold/90">Sovereign Standard</span>
+        <span className="text-gold/90">All Qimem</span>
         <span className="mx-3 text-zinc-300 dark:text-zinc-700">·</span>
         <span>Privacy</span>
         <span className="mx-3 text-zinc-300 dark:text-zinc-700">·</span>
