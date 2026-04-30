@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { getUserContext } from "@/lib/queries/context";
+import { normalizePrimaryBrandHex } from "@/lib/theme/tenant-brand-color";
 
 export type CreateTenantResult =
   | { ok: true; tenantId: string }
@@ -33,7 +34,7 @@ async function rollbackTenant(supabase: Awaited<ReturnType<typeof createClient>>
 /**
  * Inserts a tenant row plus default subscription and entitlements.
  * Optional cover image: uploaded to the `tenant-covers` Storage bucket and URL stored on the tenant.
- * Pass fields via FormData: name, slug, region?, description?, coverImage? (File).
+ * Pass fields via FormData: name, slug, region?, description?, coverImage?, logoImage?, primaryBrandColor? (#RRGGBB).
  * Hotel admins are created separately from Superadmin → Admins → Create admin.
  */
 export async function createTenantAction(formData: FormData): Promise<CreateTenantResult> {
@@ -68,6 +69,27 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
     }
   }
 
+  const logoEntry = formData.get("logoImage");
+  const logoFile = logoEntry instanceof File && logoEntry.size > 0 ? logoEntry : null;
+  if (logoFile) {
+    if (logoFile.size > MAX_COVER_BYTES) {
+      return { ok: false, error: "Logo must be 3MB or smaller." };
+    }
+    if (!Object.keys(COVER_MIME).includes(logoFile.type)) {
+      return { ok: false, error: "Logo must be JPEG, PNG, WebP, or GIF." };
+    }
+  }
+
+  const primaryBrandRaw = String(formData.get("primaryBrandColor") ?? "").trim();
+  let primary_brand_color: string | null = null;
+  if (primaryBrandRaw) {
+    const parsed = normalizePrimaryBrandHex(primaryBrandRaw);
+    if (!parsed) {
+      return { ok: false, error: "Primary brand color must be a valid #RRGGBB hex value." };
+    }
+    primary_brand_color = parsed;
+  }
+
   const supabase = await createClient();
 
   const { data: tenant, error: tenantErr } = await supabase
@@ -77,6 +99,7 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
       slug,
       region: regionRaw || null,
       description: description || null,
+      primary_brand_color,
     })
     .select("id")
     .single();
@@ -135,6 +158,29 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
     if (urlErr) {
       await rollbackTenant(supabase, tenantId);
       return { ok: false, error: urlErr.message };
+    }
+  }
+
+  if (logoFile) {
+    const ext = COVER_MIME[logoFile.type] ?? "png";
+    const path = `${tenantId}/logo.${ext}`;
+    const buf = new Uint8Array(await logoFile.arrayBuffer());
+    const { error: logoUpErr } = await supabase.storage.from("tenant-covers").upload(path, buf, {
+      contentType: logoFile.type,
+      upsert: true,
+    });
+    if (logoUpErr) {
+      await rollbackTenant(supabase, tenantId);
+      return { ok: false, error: `Logo upload failed: ${logoUpErr.message}` };
+    }
+    const { data: logoPub } = supabase.storage.from("tenant-covers").getPublicUrl(path);
+    const { error: logoUrlErr } = await supabase
+      .from("tenants")
+      .update({ logo_url: logoPub.publicUrl })
+      .eq("id", tenantId);
+    if (logoUrlErr) {
+      await rollbackTenant(supabase, tenantId);
+      return { ok: false, error: logoUrlErr.message };
     }
   }
 

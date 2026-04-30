@@ -183,7 +183,7 @@ export function HotelSettingsForms({ settings }: { settings: HotelTenantSettings
           <SectionHeader
             icon={ImageIcon}
             title="Branding"
-            description="Listings copy, cover image, and logo (public URLs)."
+            description="Property story, images, logo URLs, and primary UI accent color for staff screens."
           />
         </CardHeader>
         <CardContent>
@@ -212,6 +212,32 @@ export function HotelSettingsForms({ settings }: { settings: HotelTenantSettings
                 defaultValue={settings.cover_image_url ?? ""}
                 placeholder="https://… (e.g. Supabase Storage or CDN)"
               />
+            </div>
+            <div>
+              <label className={labelClass} htmlFor="primary_brand_color">
+                Primary brand color
+              </label>
+              <p className="mb-2 text-xs text-muted">
+                Accent for navigation, buttons, and highlights for everyone at this property (hex).
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  id="primary_brand_color"
+                  name="primary_brand_color"
+                  type="color"
+                  defaultValue={
+                    settings.primary_brand_color &&
+                    /^#[0-9a-fA-F]{6}$/.test(settings.primary_brand_color)
+                      ? settings.primary_brand_color
+                      : "#e8c547"
+                  }
+                  className="h-11 w-14 cursor-pointer rounded border border-border bg-transparent p-1"
+                />
+                <span className="text-xs text-muted">
+                  Applies to navigation, primary buttons, and gold accents for everyone signed in to this
+                  property.
+                </span>
+              </div>
             </div>
             <div>
               <label className={labelClass} htmlFor="logo_url">

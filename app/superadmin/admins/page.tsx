@@ -59,9 +59,10 @@ export default async function HotelAdminsPage({
         <CardHeader>
           <CardTitle>Assignments</CardTitle>
           <CardDescription>
-            Active users are Supabase Auth profiles linked to a hotel. Use <strong>Create admin</strong>{" "}
-            to add a password-based account (default password <strong>Admin@123</strong> unless you
-            change it).
+            Only <strong>hotel administrators</strong> are listed here (not HRMS, HRRM, or other tenant
+            roles). Active rows are Auth accounts linked to a hotel; pending rows are invite emails from
+            tenant provisioning. Use <strong>Create admin</strong> to add a password-based account
+            (default password <strong>Admin@123</strong> unless you change it).
           </CardDescription>
         </CardHeader>
         <CardContent>

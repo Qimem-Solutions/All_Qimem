@@ -519,6 +519,8 @@ export type HotelTenantSettings = {
   default_check_in_time: string | null;
   default_check_out_time: string | null;
   policies_notes: string | null;
+  /** Hex accent `#rrggbb` for buttons/nav gold tokens; null = platform default. */
+  primary_brand_color: string | null;
 };
 
 function parseTenantGalleryUrls(raw: unknown): string[] {
@@ -527,10 +529,10 @@ function parseTenantGalleryUrls(raw: unknown): string[] {
 }
 
 const HOTEL_SETTINGS_SELECT_WITH_GALLERY =
-  "name, slug, region, description, cover_image_url, logo_url, gallery_urls, timezone, default_currency, contact_phone, reservations_email, default_check_in_time, default_check_out_time, policies_notes";
+  "name, slug, region, description, cover_image_url, logo_url, gallery_urls, timezone, default_currency, contact_phone, reservations_email, default_check_in_time, default_check_out_time, policies_notes, primary_brand_color";
 
 const HOTEL_SETTINGS_SELECT_NO_GALLERY =
-  "name, slug, region, description, cover_image_url, logo_url, timezone, default_currency, contact_phone, reservations_email, default_check_in_time, default_check_out_time, policies_notes";
+  "name, slug, region, description, cover_image_url, logo_url, timezone, default_currency, contact_phone, reservations_email, default_check_in_time, default_check_out_time, policies_notes, primary_brand_color";
 
 export async function fetchHotelTenantSettings(tenantId: string): Promise<{
   settings: HotelTenantSettings | null;
@@ -578,6 +580,7 @@ export async function fetchHotelTenantSettings(tenantId: string): Promise<{
       default_check_in_time: (row.default_check_in_time as string | null) ?? null,
       default_check_out_time: (row.default_check_out_time as string | null) ?? null,
       policies_notes: (row.policies_notes as string | null) ?? null,
+      primary_brand_color: (row.primary_brand_color as string | null) ?? null,
     },
     error: null,
   };

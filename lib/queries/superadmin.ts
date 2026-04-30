@@ -307,9 +307,9 @@ export type AdminAssignmentRow = {
 };
 
 /**
- * Linked profiles (tenant_id set) plus tenants that recorded an admin at creation but have no
- * linked profile yet. Uses the service role after verifying superadmin so RLS / is_superadmin()
- * cannot hide rows from the dashboard.
+ * Linked profiles with role hotel_admin (tenant_id set) plus tenants that recorded an admin at
+ * creation but have no linked profile yet. Uses the service role after verifying superadmin so RLS /
+ * is_superadmin() cannot hide rows from the dashboard.
  */
 export async function fetchAdminsForSuperadmin(): Promise<{
   rows: AdminAssignmentRow[];
@@ -335,7 +335,7 @@ export async function fetchAdminsForSuperadmin(): Promise<{
     .from("profiles")
     .select("id, full_name, global_role, tenant_id, created_at")
     .not("tenant_id", "is", null)
-    .neq("global_role", "superadmin")
+    .eq("global_role", "hotel_admin")
     .order("created_at", { ascending: false });
 
   if (pErr) return { rows: [], error: pErr.message };

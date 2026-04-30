@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getUserContext } from "@/lib/queries/context";
 import { HOTEL_CURRENCIES } from "@/lib/constants/hotel-settings";
+import { normalizePrimaryBrandHex } from "@/lib/theme/tenant-brand-color";
 
 const CURRENCY_SET = new Set(HOTEL_CURRENCIES.map((c) => c.value));
 
@@ -75,10 +76,18 @@ export async function updateHotelBrandingSettings(
   const description = String(formData.get("description") ?? "").trim() || null;
   const cover_image_url = String(formData.get("cover_image_url") ?? "").trim() || null;
   const logo_url = String(formData.get("logo_url") ?? "").trim() || null;
+  const primaryBrandRaw = String(formData.get("primary_brand_color") ?? "").trim();
+  const primary_brand_color =
+    primaryBrandRaw === ""
+      ? null
+      : normalizePrimaryBrandHex(primaryBrandRaw);
+  if (primaryBrandRaw !== "" && !primary_brand_color) {
+    return { ok: false, error: "Primary brand color must be a valid #RRGGBB hex value." };
+  }
   const supabase = await createClient();
   const { error } = await supabase
     .from("tenants")
-    .update({ description, cover_image_url, logo_url })
+    .update({ description, cover_image_url, logo_url, primary_brand_color })
     .eq("id", tenantId);
   if (error) {
     return { ok: false, error: error.message };

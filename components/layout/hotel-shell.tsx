@@ -3,13 +3,29 @@
 import { AppShellWrapper, type AppShellNavInput } from "@/components/layout/app-shell-wrapper";
 import { hotelNav } from "@/lib/nav/hotel";
 
-export function HotelShell({ children }: { children: React.ReactNode }) {
+type Props = {
+  children: React.ReactNode;
+  tenantName: string;
+  logoUrl: string | null;
+  propertyTag: string;
+  userName: string;
+  userRoleLabel: string;
+};
+
+export function HotelShell({
+  children,
+  tenantName,
+  logoUrl,
+  propertyTag,
+  userName,
+  userRoleLabel,
+}: Props) {
   return (
     <AppShellWrapper
-      brand={{ title: "All Qimem", subtitle: "Hotel Admin" }}
+      brand={{ title: tenantName, subtitle: "Hotel Admin", logoUrl }}
       navItems={hotelNav as unknown as AppShellNavInput}
-      propertyTag="GRAND QIMEM"
-      userBlock={{ name: "Hotel Admin", role: "Executive" }}
+      propertyTag={propertyTag}
+      userBlock={{ name: userName, role: userRoleLabel }}
     >
       {children}
     </AppShellWrapper>

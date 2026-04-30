@@ -16,6 +16,8 @@ import {
 } from "@/lib/constants/passwords";
 import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
 import { cn } from "@/lib/utils";
+import type { TenantLoginBranding } from "@/lib/queries/tenant-branding-public";
+import { tenantBrandInlineStyle } from "@/lib/theme/tenant-brand-color";
 
 type Lang = "en" | "am";
 
@@ -113,9 +115,14 @@ const oauthHint: Record<
 type LoginFormProps = {
   oauth?: string;
   oauthDetail?: string;
+  tenantBranding?: TenantLoginBranding | null;
 };
 
-export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
+export function LoginForm({
+  oauth,
+  oauthDetail,
+  tenantBranding,
+}: LoginFormProps = {}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -260,8 +267,15 @@ export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
     }
   }
 
+  const tenantThemeStyle = tenantBranding?.primaryBrandColor
+    ? tenantBrandInlineStyle(tenantBranding.primaryBrandColor)
+    : undefined;
+
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
+    <div
+      className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12"
+      style={tenantThemeStyle}
+    >
       <div
         className="absolute inset-0 dark:hidden"
         style={{
@@ -301,8 +315,24 @@ export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
         )}
       >
         <div className="text-center">
-          <h1 className="text-2xl font-bold tracking-[0.2em] text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
-            ALLQIMEM
+          {tenantBranding?.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={tenantBranding.logoUrl}
+              alt=""
+              className="mx-auto h-16 max-h-20 w-auto max-w-[220px] object-contain"
+            />
+          ) : null}
+          <h1
+            className={cn(
+              "font-bold text-gold [font-family:var(--font-outfit),system-ui,sans-serif]",
+              tenantBranding?.logoUrl
+                ? "mt-4 text-xl tracking-tight"
+                : "text-2xl tracking-[0.2em]",
+              !tenantBranding && "uppercase",
+            )}
+          >
+            {tenantBranding?.name ?? "ALLQIMEM"}
           </h1>
           <p className="mt-2 text-[10px] font-medium uppercase tracking-[0.35em] text-foreground/80 dark:text-zinc-300">
             {t.unifiedSignIn}
