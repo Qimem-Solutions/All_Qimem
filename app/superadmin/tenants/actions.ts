@@ -5,6 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { getUserContext } from "@/lib/queries/context";
 import { normalizePrimaryBrandHex } from "@/lib/theme/tenant-brand-color";
+import {
+  billingServiceMonthFromPeriodEndIso,
+  subscriptionPeriodEndFromNow,
+} from "@/lib/subscriptions/billing-period";
 
 export type CreateTenantResult =
   | { ok: true; tenantId: string }
@@ -117,15 +121,41 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
 
   const tenantId = tenant.id;
 
-  const { error: subErr } = await supabase.from("subscriptions").insert({
+  const periodEnd = subscriptionPeriodEndFromNow();
+  const { data: subRow, error: subErr } = await supabase
+    .from("subscriptions")
+    .insert({
+      tenant_id: tenantId,
+      plan: "basic",
+      status: "active",
+      current_period_end: periodEnd,
+    })
+    .select("id, tenant_id, current_period_end, plan")
+    .single();
+
+  if (subErr || !subRow) {
+    await rollbackTenant(supabase, tenantId);
+    return { ok: false, error: subErr?.message ?? "Subscription insert failed." };
+  }
+
+  const { error: billErr } = await supabase.from("subscription_billing_events").insert({
     tenant_id: tenantId,
-    plan: "basic",
-    status: "active",
+    subscription_id: subRow.id as string,
+    service_month: billingServiceMonthFromPeriodEndIso(subRow.current_period_end as string),
+    plan: subRow.plan as string,
+    source: "initial",
   });
 
-  if (subErr) {
+  if (billErr) {
     await rollbackTenant(supabase, tenantId);
-    return { ok: false, error: subErr.message };
+    return {
+      ok: false,
+      error:
+        billErr.message +
+        (billErr.message.includes("relation") || billErr.message.includes("does not exist")
+          ? " Run migration subscription_billing_events."
+          : ""),
+    };
   }
 
   const { error: entErr } = await supabase.from("tenant_entitlements").insert({
@@ -187,6 +217,7 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
   revalidatePath("/superadmin/tenants");
   revalidatePath("/superadmin/dashboard");
   revalidatePath("/superadmin/subscriptions");
+  revalidatePath("/superadmin/billing");
   revalidatePath("/superadmin/admins");
 
   return { ok: true, tenantId };

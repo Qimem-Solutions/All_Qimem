@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, CreditCard, Wallet, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -11,48 +11,18 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
+import { planPricingDisplay } from "@/lib/constants/plan-pricing-display";
 import type { TenantReportRow } from "@/lib/queries/superadmin";
+import type { SubscriptionBillingEventRow } from "@/lib/queries/subscription-billing";
+import { SUPERADMIN_TABLE_PAGE_SIZE } from "@/lib/constants/table-pagination";
+import { SuperadminInvoicePreviewDialog } from "@/components/superadmin/superadmin-invoice-preview-dialog";
 
-/** Display prices for the billing table (configure to match your catalog). */
-const PLAN_ETB: Record<string, { amount: string; name: string }> = {
-  basic: { amount: "9.00", name: "Basic" },
-  pro: { amount: "20.00", name: "Pro" },
-  advanced: { amount: "49.00", name: "Advanced" },
-};
-
-function planPrice(plan: string | null) {
-  if (!plan) return { amount: "—", name: "—" as string };
-  const p = plan.toLowerCase();
-  return PLAN_ETB[p] ?? { amount: "—", name: plan };
-}
-
-function statusLabel(s: string | null) {
-  if (!s) return "No plan";
-  const x = s.toLowerCase();
-  if (x === "active") return "Active";
-  if (x === "trialing" || x === "trial") return "Trialing";
-  if (x === "past_due" || x === "unpaid") return "Past due";
-  if (x === "canceled" || x === "cancelled") return "Canceled";
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function statusBillingBadge(s: string | null) {
-  if (!s) return <Badge tone="gray">No plan</Badge>;
-  const x = s.toLowerCase();
-  if (x === "active" || x === "trialing" || x === "trial")
-    return <Badge tone="green">{statusLabel(s)}</Badge>;
-  if (x === "past_due" || x === "unpaid") return <Badge tone="orange">{statusLabel(s)}</Badge>;
-  if (x === "canceled" || x === "cancelled" || x === "inactive" || x === "suspended" || x === "paused")
-    return <Badge tone="red">{statusLabel(s)}</Badge>;
-  return <Badge tone="gray">{statusLabel(s)}</Badge>;
-}
-
-type MonthValue = "all" | string;
-
-function monthKey(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+function monthKeyFromServiceMonth(iso: string) {
+  return iso.slice(0, 7);
 }
 
 function labelForMonthKey(key: string) {
@@ -61,39 +31,84 @@ function labelForMonthKey(key: string) {
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
+function sourceBadge(source: string) {
+  if (source === "initial") return <Badge tone="gold">Signup</Badge>;
+  if (source === "period_extension") return <Badge tone="gray">Renewal</Badge>;
+  return <Badge tone="gray">{source}</Badge>;
+}
+
 /** Matches `Button` secondary + md — for `Link` / `<a>` navigation. */
 const secondaryNavClass = cn(
   "inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-elevated px-4 text-sm font-medium text-foreground transition-colors hover:bg-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold dark:hover:bg-zinc-800",
   "h-10",
 );
 
-export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]; error: string | null }) {
-  const monthOptions = useMemo(() => {
-    const keys: string[] = [];
-    const now = new Date();
-    for (let i = 0; i < 18; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      keys.push(monthKey(d));
+type PlanFilterInv = "all" | "basic" | "pro" | "advanced";
+type SourceFilter = "all" | "initial" | "period_extension";
+
+export function SuperadminBillingView({
+  rows,
+  error,
+  billingRows,
+  billingError,
+}: {
+  rows: TenantReportRow[];
+  error: string | null;
+  billingRows: SubscriptionBillingEventRow[];
+  billingError: string | null;
+}) {
+  const [search, setSearch] = useState("");
+  const [filterPlan, setFilterPlan] = useState<PlanFilterInv>("all");
+  const [filterSource, setFilterSource] = useState<SourceFilter>("all");
+  const [filterMonth, setFilterMonth] = useState<string>("all");
+  const [page, setPage] = useState(1);
+  const [previewRow, setPreviewRow] = useState<SubscriptionBillingEventRow | null>(null);
+
+  const billingMonthOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of billingRows) {
+      const k = monthKeyFromServiceMonth(r.service_month);
+      if (k.length >= 7) set.add(k);
+    }
+    const keys = [...set].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+    if (keys.length === 0) {
+      const now = new Date();
+      for (let i = 0; i < 18; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+      }
     }
     return keys;
-  }, []);
+  }, [billingRows]);
 
-  const [filterMonth, setFilterMonth] = useState<MonthValue>("all");
-
-  const filtered = useMemo(() => {
-    if (filterMonth === "all") return rows;
-    const [y, m] = filterMonth.split("-").map(Number);
-    if (!y || !m) return rows;
-    const start = new Date(y, m - 1, 1).getTime();
-    const end = new Date(y, m, 0, 23, 59, 59, 999).getTime();
-    return rows.filter((r) => {
-      const t = r.subCreatedAt
-        ? new Date(r.subCreatedAt).getTime()
-        : new Date(r.created_at).getTime();
-      if (Number.isNaN(t)) return false;
-      return t >= start && t <= end;
+  const filteredBilling = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return billingRows.filter((r) => {
+      if (filterPlan !== "all" && String(r.plan).toLowerCase() !== filterPlan) return false;
+      if (filterSource !== "all" && r.source !== filterSource) return false;
+      if (filterMonth !== "all" && monthKeyFromServiceMonth(r.service_month) !== filterMonth) return false;
+      if (!q) return true;
+      const name = (r.tenant_name ?? "").toLowerCase();
+      const slug = (r.tenant_slug ?? "").toLowerCase();
+      const pl = String(r.plan).toLowerCase();
+      return name.includes(q) || slug.includes(q) || pl.includes(q) || r.id.toLowerCase().includes(q);
     });
-  }, [rows, filterMonth]);
+  }, [billingRows, search, filterPlan, filterSource, filterMonth]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredBilling.length / SUPERADMIN_TABLE_PAGE_SIZE));
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, filterPlan, filterSource, filterMonth]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pageBillingRows = useMemo(() => {
+    const start = (page - 1) * SUPERADMIN_TABLE_PAGE_SIZE;
+    return filteredBilling.slice(start, start + SUPERADMIN_TABLE_PAGE_SIZE);
+  }, [filteredBilling, page]);
 
   const activeCount = useMemo(
     () => rows.filter((r) => (r.subStatus ?? "").toLowerCase() === "active").length,
@@ -126,7 +141,7 @@ export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]
       }
     }
     if (!best) return null;
-    const meta = planPrice(best);
+    const meta = planPricingDisplay(best);
     return { key: best, count: n, label: meta.name, amount: meta.amount };
   }, [rows]);
 
@@ -137,6 +152,17 @@ export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]
           {error}
         </p>
       ) : null}
+      {billingError ? (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-200">
+          {billingError}
+        </p>
+      ) : null}
+
+      <SuperadminInvoicePreviewDialog
+        open={!!previewRow}
+        onClose={() => setPreviewRow(null)}
+        row={previewRow}
+      />
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="flex flex-col justify-between">
@@ -158,7 +184,7 @@ export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]
             <CardDescription className="leading-relaxed">
               {rows.length} propert{rows.length === 1 ? "y" : "ies"} on the platform;{" "}
               <span className="font-medium text-foreground">{activeCount} active</span> paid or trialing
-              subscriptions. Align displayed amounts with your Stripe product prices.
+              subscriptions. Amounts shown are ETB per month (catalog pricing).
             </CardDescription>
             {nextRenewal ? (
               <p className="mt-3 text-sm text-muted">
@@ -196,33 +222,84 @@ export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]
       </div>
 
       <Card className="overflow-hidden p-0">
-        <CardHeader className="flex flex-col gap-2 border-b border-border bg-background/40 pb-4 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle className="text-base">Invoices & subscriptions</CardTitle>
-          <div className="flex items-center gap-2 text-sm text-muted">
-            <span className="whitespace-nowrap">Period</span>
-            <select
-              value={filterMonth}
-              onChange={(e) => setFilterMonth(e.target.value as MonthValue)}
-              className="h-9 min-w-[10rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/50"
-            >
-              <option value="all">All time</option>
-              {monthOptions.map((k) => (
-                <option key={k} value={k}>
-                  {labelForMonthKey(k)}
-                </option>
-              ))}
-            </select>
+        <CardHeader className="flex flex-col gap-4 border-b border-border bg-background/40 pb-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="text-base">Invoices & subscriptions</CardTitle>
+            <p className="text-xs text-muted">
+              Ledger rows from signup and each <strong>Update period (+1 month)</strong> action.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:gap-3">
+            <div className="min-w-[12rem] flex-1">
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Search
+              </label>
+              <Input
+                placeholder="Hotel, slug, plan…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label="Search invoices"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Plan
+              </label>
+              <select
+                value={filterPlan}
+                onChange={(e) => setFilterPlan(e.target.value as PlanFilterInv)}
+                className="h-10 min-w-[9rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/50"
+              >
+                <option value="all">All plans</option>
+                <option value="basic">Basic</option>
+                <option value="pro">Pro</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Type
+              </label>
+              <select
+                value={filterSource}
+                onChange={(e) => setFilterSource(e.target.value as SourceFilter)}
+                className="h-10 min-w-[10rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/50"
+              >
+                <option value="all">All types</option>
+                <option value="initial">Initial signup</option>
+                <option value="period_extension">Period renewal</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Service month
+              </label>
+              <select
+                value={filterMonth}
+                onChange={(e) => setFilterMonth(e.target.value)}
+                className="h-10 min-w-[11rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/50"
+              >
+                <option value="all">All months</option>
+                {billingMonthOptions.map((k) => (
+                  <option key={k} value={k}>
+                    {labelForMonthKey(k)}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px] text-left text-sm">
+            <table className="w-full min-w-[880px] text-left text-sm">
               <thead>
                 <tr className="border-b border-border text-[10px] uppercase tracking-wider text-zinc-500">
-                  <th className="whitespace-nowrap px-6 py-4 font-medium">Date</th>
-                  <th className="whitespace-nowrap py-4 pr-3 font-medium">Tenant</th>
-                  <th className="min-w-[120px] py-4 font-medium">Description</th>
-                  <th className="whitespace-nowrap py-4 font-medium">Status</th>
+                  <th className="whitespace-nowrap px-6 py-4 font-medium">Recorded</th>
+                  <th className="whitespace-nowrap py-4 pr-3 font-medium">Hotel</th>
+                  <th className="whitespace-nowrap py-4 font-medium">Month paid</th>
+                  <th className="py-4 font-medium">Plan</th>
+                  <th className="whitespace-nowrap py-4 font-medium">Type</th>
                   <th className="whitespace-nowrap py-4 text-right font-medium">Amount</th>
                   <th className="w-[1%] whitespace-nowrap py-4 pl-2 pr-6 text-right font-medium">
                     Invoice
@@ -230,48 +307,56 @@ export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]
                 </tr>
               </thead>
               <tbody>
-                {rows.length === 0 ? (
+                {billingRows.length === 0 && !billingError ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-sm text-zinc-500">
-                      No tenants yet.
+                    <td colSpan={7} className="px-6 py-12 text-center text-sm text-zinc-500">
+                      No billing ledger rows yet. Run the{" "}
+                      <span className="font-mono text-xs">subscription_billing_events</span> migration, or
+                      create tenants / extend periods to populate this list.
                     </td>
                   </tr>
-                ) : filtered.length === 0 ? (
+                ) : filteredBilling.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-sm text-zinc-500">
-                      No activity in this period. Try &quot;All time&quot; or another month.
+                    <td colSpan={7} className="px-6 py-12 text-center text-sm text-zinc-500">
+                      No rows match your filters.
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((r) => {
-                    const d = r.subCreatedAt ? new Date(r.subCreatedAt) : new Date(r.created_at);
-                    const { amount, name: planName } = planPrice(r.plan);
+                  pageBillingRows.map((r) => {
+                    const { amount, name: planName } = planPricingDisplay(r.plan);
                     const showAmount = r.plan && amount !== "—" ? `ETB ${amount}` : "—";
+                    const monthPaid = labelForMonthKey(monthKeyFromServiceMonth(r.service_month));
                     return (
                       <tr
                         key={r.id}
                         className="border-b border-border/60 transition-colors hover:bg-white/[0.02]"
                       >
                         <td className="whitespace-nowrap px-6 py-4 text-zinc-400">
-                          {formatDate(d.toISOString())}
+                          {r.created_at ? formatDate(r.created_at) : "—"}
                         </td>
                         <td className="max-w-[200px] py-4 pr-2">
-                          <p className="truncate font-medium text-white">{r.name}</p>
-                          <p className="truncate font-mono text-xs text-gold">/{r.slug}</p>
+                          <p className="truncate font-medium text-white">
+                            {r.tenant_name ?? "—"}
+                          </p>
+                          {r.tenant_slug ? (
+                            <p className="truncate font-mono text-xs text-gold">/{r.tenant_slug}</p>
+                          ) : null}
                         </td>
-                        <td className="py-4 text-zinc-400">{r.plan ? `${planName} plan` : "—"}</td>
-                        <td className="whitespace-nowrap py-4">{statusBillingBadge(r.subStatus)}</td>
+                        <td className="whitespace-nowrap py-4 text-zinc-300">{monthPaid}</td>
+                        <td className="py-4 capitalize text-zinc-400">{planName}</td>
+                        <td className="whitespace-nowrap py-4">{sourceBadge(r.source)}</td>
                         <td className="whitespace-nowrap py-4 text-right tabular-nums text-zinc-300">
                           {showAmount}
                         </td>
                         <td className="whitespace-nowrap py-4 pl-2 pr-6 text-right">
-                          <Link
-                            href="/superadmin/subscriptions"
+                          <button
+                            type="button"
                             className="inline-flex items-center gap-1.5 text-sm font-medium text-gold/90 underline decoration-gold/30 underline-offset-2 hover:text-gold"
+                            onClick={() => setPreviewRow(r)}
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
                             View
-                          </Link>
+                          </button>
                         </td>
                       </tr>
                     );
@@ -280,6 +365,51 @@ export function SuperadminBillingView({ rows, error }: { rows: TenantReportRow[]
               </tbody>
             </table>
           </div>
+
+          {billingRows.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-4">
+              <p className="text-xs text-zinc-500 tabular-nums">
+                {filteredBilling.length === 0 ? (
+                  <>Showing 0 of {filteredBilling.length}</>
+                ) : (
+                  <>
+                    Showing {(page - 1) * SUPERADMIN_TABLE_PAGE_SIZE + 1}–
+                    {Math.min(page * SUPERADMIN_TABLE_PAGE_SIZE, filteredBilling.length)} of{" "}
+                    {filteredBilling.length}
+                  </>
+                )}
+                {filteredBilling.length !== billingRows.length ? (
+                  <span className="text-zinc-600"> (filtered from {billingRows.length})</span>
+                ) : null}
+                <span className="text-zinc-600"> · {SUPERADMIN_TABLE_PAGE_SIZE} per page</span>
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs tabular-nums text-zinc-500">
+                  Page {page} of {totalPages}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={page <= 1 || filteredBilling.length === 0}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={page >= totalPages || filteredBilling.length === 0}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

@@ -9,23 +9,24 @@ import {
 } from "@/lib/queries/superadmin";
 import { fetchPendingPlanChangeRequestsForSuperadmin } from "@/lib/queries/plan-change-requests";
 import { SuperadminPendingPlanRequests } from "@/components/superadmin/superadmin-pending-plan-requests";
-import { formatDate } from "@/lib/format";
+import { SuperadminSubscriptionsTable } from "@/components/superadmin/superadmin-subscriptions-table";
+import { sweepAllExpiredSubscriptions } from "@/lib/subscriptions/subscription-expiry";
 
 const productPlans = [
   {
     name: "Basic",
     keys: ["HRRM core", "HRMS directory"],
-    price: "Configure in billing",
+    price: "ETB 2,000 / month",
   },
   {
     name: "Pro",
     keys: ["+ Advanced rates", "+ Scheduling / attendance"],
-    price: "Configure in billing",
+    price: "ETB 3,000 / month",
   },
   {
     name: "Advanced",
     keys: ["+ Cross-service reporting", "+ Full API"],
-    price: "Custom",
+    price: "ETB 4,000 / month",
   },
 ];
 
@@ -33,6 +34,8 @@ export default async function SubscriptionsPage() {
   const ctx = await getUserContext();
   if (!ctx) redirect("/login");
   if (ctx.globalRole !== "superadmin") redirect("/");
+
+  await sweepAllExpiredSubscriptions();
 
   const [{ rows: subs, error: listErr }, { byPlan, error: planErr }, { rows: pendingRequests, error: pendingErr }] =
     await Promise.all([
@@ -114,37 +117,15 @@ export default async function SubscriptionsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Subscription records</CardTitle>
-          <CardDescription>All rows in `subscriptions`.</CardDescription>
+          <CardDescription>
+            When <strong>period end</strong> passes, active subscriptions are marked inactive and all
+            tenant users (including hotel admins) are blocked from signing in until a superadmin uses{" "}
+            <strong>Update period (+1 month)</strong> on that row. Opening this page also runs an expiry
+            sweep. Changing the plan updates entitlements tier immediately.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          {subs.length === 0 && !listErr ? (
-            <p className="text-sm text-zinc-500">No subscription rows yet.</p>
-          ) : (
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-border text-xs uppercase text-zinc-500">
-                  <th className="pb-3 font-medium">Tenant</th>
-                  <th className="pb-3 font-medium">Plan</th>
-                  <th className="pb-3 font-medium">Status</th>
-                  <th className="pb-3 font-medium">Period end</th>
-                  <th className="pb-3 font-medium">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {subs.map((s) => (
-                  <tr key={s.id} className="border-b border-border/60">
-                    <td className="py-3 font-medium text-white">{s.tenant_name ?? s.tenant_id}</td>
-                    <td className="py-3 capitalize">{s.plan}</td>
-                    <td className="py-3">
-                      <Badge tone={s.status === "active" ? "green" : "gray"}>{s.status}</Badge>
-                    </td>
-                    <td className="py-3 text-zinc-400">{formatDate(s.current_period_end)}</td>
-                    <td className="py-3 text-zinc-500">{formatDate(s.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+        <CardContent>
+          <SuperadminSubscriptionsTable rows={subs} />
         </CardContent>
       </Card>
     </div>

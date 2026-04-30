@@ -4,10 +4,16 @@ import { HrrmAppChrome } from "@/components/layout/hrrm-app-chrome";
 import { getHrrmLayoutModel } from "@/lib/auth/hrrm-station.server";
 import { getUserContext } from "@/lib/queries/context";
 import { getServiceAccessForLayout } from "@/lib/auth/service-access";
+import { enforceExpiredSubscriptionForTenant } from "@/lib/subscriptions/subscription-expiry";
 
 export default async function HrrmLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getUserContext();
   if (!ctx) redirect("/login");
+
+  if (ctx.tenantId && ctx.globalRole !== "superadmin") {
+    await enforceExpiredSubscriptionForTenant(ctx.tenantId);
+  }
+
   if (!ctx.tenantId) {
     redirect(
       "/hotel/dashboard?notice=" + encodeURIComponent("Select a property to use HRRM."),

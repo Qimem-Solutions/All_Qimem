@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getUserContext } from "@/lib/queries/context";
 import { fetchSuperadminTenantsReport } from "@/lib/queries/superadmin";
+import { fetchSubscriptionBillingEventsForSuperadmin } from "@/lib/queries/subscription-billing";
 import { SuperadminBillingView } from "@/components/superadmin/superadmin-billing-view";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,10 @@ export default async function SuperadminBillingPage() {
   if (!ctx) redirect("/login");
   if (ctx.globalRole !== "superadmin") redirect("/");
 
-  const { rows, error } = await fetchSuperadminTenantsReport();
+  const [{ rows, error }, { rows: billingRows, error: billingError }] = await Promise.all([
+    fetchSuperadminTenantsReport(),
+    fetchSubscriptionBillingEventsForSuperadmin(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -23,7 +27,12 @@ export default async function SuperadminBillingPage() {
         </p>
       </div>
 
-      <SuperadminBillingView rows={rows} error={error} />
+      <SuperadminBillingView
+        rows={rows}
+        error={error}
+        billingRows={billingRows}
+        billingError={billingError}
+      />
     </div>
   );
 }

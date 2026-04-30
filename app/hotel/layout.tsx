@@ -3,9 +3,14 @@ import { fetchHotelTenantSettings } from "@/lib/queries/tenant-data";
 import { HotelShell } from "@/components/layout/hotel-shell";
 import { StaffModuleShell } from "@/components/layout/staff-module-shell";
 import { tenantBrandInlineStyle } from "@/lib/theme/tenant-brand-color";
+import { enforceExpiredSubscriptionForTenant } from "@/lib/subscriptions/subscription-expiry";
 
 export default async function HotelLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getUserContext();
+
+  if (ctx?.tenantId && ctx.globalRole !== "superadmin") {
+    await enforceExpiredSubscriptionForTenant(ctx.tenantId);
+  }
 
   let tenantName = "All Qimem";
   let logoUrl: string | null = null;
