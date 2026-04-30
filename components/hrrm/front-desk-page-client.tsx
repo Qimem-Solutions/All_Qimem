@@ -74,6 +74,22 @@ export function FrontDeskPageClient({
   const [detailOpen, setDetailOpen] = useState(false);
   const selectedQueryLocked = selected != null && q.trim() === selected.full_name.trim();
 
+  // ---------- pop-up state ----------
+  const [createdPopup, setCreatedPopup] = useState<{ visible: boolean; message: string }>({
+    visible: false,
+    message: "",
+  });
+
+  // auto-dismiss pop-up after 3 seconds
+  useEffect(() => {
+    if (!createdPopup.visible) return;
+    const timer = setTimeout(() => {
+      setCreatedPopup({ visible: false, message: "" });
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [createdPopup.visible]);
+  // ----------------------------------
+
   const applyGuestToForm = useCallback((guest: GuestDirectoryRow) => {
     setExistingGuestId(guest.id);
     setRegName(guest.full_name);
@@ -221,6 +237,14 @@ export function FrontDeskPageClient({
         setFormErr(r.error);
         return;
       }
+
+      // ---------- show success pop-up ----------
+      setCreatedPopup({
+        visible: true,
+        message: `Guest “${regName}” registered successfully!`,
+      });
+      // -----------------------------------------
+
       if (r.profileLimited) {
         setFormNotice(
           "Guest was saved with name only. Extended columns (age, party, ID, payment) are missing on the database. Run supabase/migrations/20260429120000_ensure_guests_extended_columns.sql in the Supabase SQL Editor (date prefix 20260429, not 202404), then register again to capture the full profile.",
@@ -272,6 +296,17 @@ export function FrontDeskPageClient({
 
   return (
     <div className="space-y-8">
+      {/* ---------- success pop-up toast ---------- */}
+      {createdPopup.visible && (
+        <div
+          className="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg bg-emerald-600 text-white shadow-xl text-sm font-medium animate-in fade-in slide-in-from-top-4"
+          role="alert"
+        >
+          {createdPopup.message}
+        </div>
+      )}
+      {/* -------------------------------------------- */}
+
       <div>
         <h1 className="text-2xl font-semibold text-white [font-family:var(--font-outfit),system-ui,sans-serif]">
           Front desk
