@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { formatBirrCents } from "@/lib/format";
 import type { AvailabilityMatrix, AvailabilityRow } from "@/lib/queries/hrrm-availability";
 import { addDaysToIso, nightsBetween } from "@/lib/hrrm-pricing";
@@ -68,6 +69,8 @@ export function AvailabilityPageClient({
 
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(() => new Set());
   const [typeFilterOpen, setTypeFilterOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const [guestQuery, setGuestQuery] = useState("");
   const [guestHits, setGuestHits] = useState<GuestPick[]>([]);
@@ -308,6 +311,7 @@ export function AvailabilityPageClient({
                                     else next.add(r.roomTypeId);
                                     return next;
                                   });
+                                  setPage(1);
                                 }}
                               />
                               <span className="flex-1">{r.roomTypeName}</span>
@@ -368,7 +372,13 @@ export function AvailabilityPageClient({
                       </tr>
                     </thead>
                     <tbody>
-                      {visibleRows.map((row) => (
+                      {/** paginate visible rows */}
+                      {(() => {
+                        const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize));
+                        const pageSafe = Math.min(Math.max(1, page), totalPages);
+                        const offset = (pageSafe - 1) * pageSize;
+                        const pagedRows = visibleRows.slice(offset, offset + pageSize);
+                        return pagedRows.map((row) => (
                         <tr key={row.roomTypeId} className="border-b border-border last:border-b-0">
                           <td className="sticky left-0 z-10 bg-background px-4 py-4 text-left shadow-[2px_0_8px_-4px_rgba(0,0,0,0.08)] dark:bg-background dark:shadow-[2px_0_8px_-4px_rgba(0,0,0,0.4)]">
                             <p className="text-sm font-medium text-foreground">{row.roomTypeName}</p>
@@ -404,11 +414,27 @@ export function AvailabilityPageClient({
                             );
                           })}
                         </tr>
-                      ))}
+                      ));
+                      })()}
                     </tbody>
                   </table>
                 </div>
               )}
+              {visibleRows.length > 0 ? (
+                <ListPagination
+                  itemLabel="room types"
+                  totalItems={matrix.rows.length}
+                  filteredItems={visibleRows.length}
+                  page={Math.min(Math.max(1, page), Math.max(1, Math.ceil(visibleRows.length / pageSize)))}
+                  pageSize={pageSize}
+                  totalPages={Math.max(1, Math.ceil(visibleRows.length / pageSize))}
+                  onPageChange={setPage}
+                  onPageSizeChange={(next) => {
+                    setPageSize(next);
+                    setPage(1);
+                  }}
+                />
+              ) : null}
             </div>
           </div>
         </CardContent>
