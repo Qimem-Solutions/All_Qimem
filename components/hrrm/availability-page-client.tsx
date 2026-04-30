@@ -324,12 +324,12 @@ export function AvailabilityPageClient({
           </div>
         </CardHeader>
         <CardContent className="p-6">
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.8fr)]">
+          <div className="grid gap-6">
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-foreground">Availability grid</p>
-                  <p className="text-xs text-muted">Click any cell to use that room type and start night in the booking panel.</p>
+                  <p className="text-xs text-muted">Click any cell to see room type details.</p>
                 </div>
                 <div className="flex flex-wrap gap-2 text-[11px]">
                   <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-emerald-800 dark:text-emerald-200">
@@ -364,6 +364,7 @@ export function AvailabilityPageClient({
                             </th>
                           );
                         })}
+                        
                       </tr>
                     </thead>
                     <tbody>
@@ -389,7 +390,7 @@ export function AvailabilityPageClient({
                                     isSelected && "ring-2 ring-gold ring-offset-2 ring-offset-background",
                                   )}
                                   onClick={() => onCellClick(row, cell.date)}
-                                  title="Use this room type and night for quick reservation"
+                                  title="Click to select this room type and date"
                                 >
                                   <span className="block text-[11px] font-medium">
                                     {cell.available}/{cell.physical}
@@ -409,187 +410,38 @@ export function AvailabilityPageClient({
                 </div>
               )}
             </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Quick reservation</CardTitle>
-                <CardDescription>Build a booking directly from the availability view.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {formError ? (
-                  <p className="rounded-lg border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-800 dark:text-red-200">{formError}</p>
-                ) : null}
-
-                <div className="relative">
-                  <label className={infoLabelClass()}>Guest lookup</label>
-                  <div className="relative mt-1.5">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                    <Input
-                      className="pl-10"
-                      placeholder="Name, phone, or guest ID"
-                      value={guestQuery}
-                      onChange={(e) => {
-                        setGuestQuery(e.target.value);
-                        if (!e.target.value.trim()) {
-                          setGuest(null);
-                        } else if (guest && e.target.value.trim() !== guest.full_name.trim()) {
-                          setGuest(null);
-                        }
-                      }}
-                      onFocus={() => {
-                        if (guestHits.length > 0 && !selectedGuestQueryLocked) setGuestOpen(true);
-                      }}
-                    />
-                  </div>
-                  {guest ? (
-                    <p className="mt-2 text-xs text-gold">
-                      Selected: {guest.full_name}
-                      {guest.phone ? ` · ${guest.phone}` : ""}
-                    </p>
-                  ) : null}
-                  {guestOpen && guestHits.length > 0 ? (
-                    <ul className="absolute left-0 right-0 z-10 mt-2 max-h-44 overflow-y-auto rounded-xl border border-border bg-surface-elevated py-1 text-left text-sm shadow-md" role="listbox">
-                      {guestHits.map((g) => (
-                        <li key={g.id}>
-                          <button
-                            type="button"
-                            className="w-full px-3 py-2 text-left text-foreground hover:bg-muted/50"
-                            onClick={() => {
-                              setGuest(g);
-                              setGuestQuery(g.full_name);
-                              setGuestOpen(false);
-                            }}
-                          >
-                            {g.full_name}
-                            {g.phone ? <span className="ml-1 text-muted">({g.phone})</span> : null}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={infoLabelClass()}>Check-in</label>
-                    <Input className="mt-1.5" type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={infoLabelClass()}>Check-out</label>
-                    <Input className="mt-1.5" type="date" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-border bg-muted/30 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className={infoLabelClass()}>Selected room type</p>
-                      <p className="mt-2 text-base font-medium text-foreground">
-                        {selectedRow ? selectedRow.roomTypeName : "Select a room type from the grid"}
-                      </p>
-                    </div>
-                    <CalendarRange className="mt-1 h-4 w-4 text-muted" />
-                  </div>
-                  <p className="mt-2 text-xs text-muted">
-                    {nights > 0 ? `${nights} night${nights === 1 ? "" : "s"}` : "—"} · {adults} adult{adults === 1 ? "" : "s"} capacity guide
-                  </p>
-                </div>
-
-                {selectedRow && totalCents > 0 ? (
-                  <div className="rounded-xl border border-gold/30 bg-gold/10 p-4 dark:bg-gold/5">
-                    <div className="space-y-2 text-sm text-foreground">
-                      <div className="flex justify-between">
-                        <span>Nightly price</span>
-                        <span>{formatBirrCents(nightlyCents)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Nights</span>
-                        <span>{nights}</span>
-                      </div>
-                      <div className="flex justify-between border-t border-gold/25 pt-2 text-lg font-semibold text-gold">
-                        <span>Total</span>
-                        <span>{formatBirrCents(totalCents)}</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted">Choose a priced room type and a valid date range to see the total stay amount.</p>
-                )}
-
-                <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" type="button" disabled={!canManage || saving} onClick={() => void onSubmit("hold")}>
-                    Draft hold
-                  </Button>
-                  <Button type="button" disabled={!canManage || saving} onClick={() => void onSubmit("confirm")}>
-                    {saving ? "Saving…" : "Confirm booking"}
-                  </Button>
-                </div>
-
-                {!canManage ? (
-                  <p className="text-xs text-amber-800 dark:text-amber-200/90">
-                    View-only: ask an administrator for manage access to create reservations.
-                  </p>
-                ) : null}
-              </CardContent>
-            </Card>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Occupancy forecast</CardTitle>
-            <CardDescription>Booked room-nights divided by total sellable rooms for each day in view.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {matrix.occupancyByDate.length === 0 ? (
-              <p className="text-sm text-muted">No data.</p>
-            ) : (
-              <div className="flex h-36 items-end gap-2">
-                {matrix.occupancyByDate.map((pct, i) => (
-                  <div key={matrix.days[i]!.date} className="group flex flex-1 flex-col items-center">
-                    <div
-                      className={cn("w-full rounded-t-md", matrix.days[i]!.date === todayIso ? "bg-gold" : "bg-muted")}
-                      style={{ height: `${Math.max(8, Math.round(pct * 100))}%` }}
-                    />
-                    <span className="mt-2 text-[10px] text-muted">{Math.round(pct * 100)}%</span>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <TrendingUp className="h-4 w-4 text-gold" />
+            Average daily rate
+          </CardTitle>
+          <CardDescription>Weighted by room count per type and the current room type pricing.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {matrix.adrCents != null && matrix.adrCents > 0 ? (
+            <>
+              <p className="text-3xl font-semibold text-foreground">{formatBirrCents(matrix.adrCents)}</p>
+              <div className="mt-5 space-y-2 text-sm text-muted">
+                {matrix.rows.slice(0, 6).map((r) => (
+                  <div key={r.roomTypeId} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2">
+                    <span className="truncate pr-2 text-foreground">{r.roomTypeName}</span>
+                    <span className="tabular-nums text-foreground">{r.nightlyCents ? formatBirrCents(r.nightlyCents) : "—"}</span>
                   </div>
                 ))}
               </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <TrendingUp className="h-4 w-4 text-gold" />
-              Average daily rate
-            </CardTitle>
-            <CardDescription>Weighted by room count per type and the current room type pricing.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {matrix.adrCents != null && matrix.adrCents > 0 ? (
-              <>
-                <p className="text-3xl font-semibold text-foreground">{formatBirrCents(matrix.adrCents)}</p>
-                <div className="mt-5 space-y-2 text-sm text-muted">
-                  {matrix.rows.slice(0, 6).map((r) => (
-                    <div key={r.roomTypeId} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2">
-                      <span className="truncate pr-2 text-foreground">{r.roomTypeName}</span>
-                      <span className="tabular-nums text-foreground">{r.nightlyCents ? formatBirrCents(r.nightlyCents) : "—"}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-sm text-muted">
-                Add room type prices in Rates &amp; pricing to see ADR here.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-sm text-muted">
+              Add room type prices in Rates &amp; pricing to see ADR here.
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
