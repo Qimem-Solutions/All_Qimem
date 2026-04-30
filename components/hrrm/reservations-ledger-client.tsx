@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
-import { CalendarRange, Download, Search } from "lucide-react";
+import { Download, Search } from "lucide-react";
 import { formatBirrCents, formatDate, formatRelative } from "@/lib/format";
 import type { ReservationLedgerRow } from "@/lib/queries/tenant-data";
 import { cn } from "@/lib/utils";
@@ -137,7 +137,6 @@ export function ReservationsLedgerClient({
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [rangeOpen, setRangeOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [preferredSelectedId, setPreferredSelectedId] = useState<string | null>(() => allRows[0]?.id ?? null);
@@ -293,14 +292,52 @@ export function ReservationsLedgerClient({
                 aria-label="Filter reservations by search"
               />
             </div>
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="flex flex-wrap justify-end items-center gap-2">
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col">
+                  <label htmlFor="res-from" className="text-xs text-zinc-500">
+                    From
+                  </label>
+                  <Input
+                    id="res-from"
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => {
+                      setDateFrom(e.target.value);
+                      setPage(1);
+                    }}
+                    className="h-9 pl-3 min-w-[9rem]"
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <label htmlFor="res-to" className="text-xs text-zinc-500">
+                    To
+                  </label>
+                  <Input
+                    id="res-to"
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => {
+                      setDateTo(e.target.value);
+                      setPage(1);
+                    }}
+                    className="h-9 pl-3 min-w-[9rem]"
+                  />
+                </div>
+              </div>
               <Button
                 variant="secondary"
                 className="gap-2"
                 type="button"
-                onClick={() => setRangeOpen((o) => !o)}
+                onClick={() => {
+                  setDateFrom("");
+                  setDateTo("");
+                  setSearch("");
+                  setTab("all");
+                  setPage(1);
+                }}
               >
-                <CalendarRange className="h-4 w-4" /> Date range
+                Clear filters
               </Button>
               <Button
                 variant="secondary"
@@ -330,47 +367,10 @@ export function ReservationsLedgerClient({
               </button>
             ) : null}
           </p>
+          <p className="text-xs text-zinc-500 sm:pl-4 sm:text-right">
+            <span className="text-zinc-400">Tip:</span> Use the date fields next to filters to narrow stays.
+          </p>
         </div>
-        {rangeOpen ? (
-          <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-elevated/40 p-4 sm:flex-row sm:items-end sm:gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-500" htmlFor="res-from">
-                Check-in on or after
-              </label>
-              <Input
-                id="res-from"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => {
-                  setDateFrom(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full min-w-[10rem] sm:w-auto"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-500" htmlFor="res-to">
-                Check-out on or before
-              </label>
-              <Input
-                id="res-to"
-                type="date"
-                value={dateTo}
-                onChange={(e) => {
-                  setDateTo(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full min-w-[10rem] sm:w-auto"
-              />
-            </div>
-            <p className="text-xs text-zinc-500 sm:max-w-sm sm:pb-2">
-              With <span className="text-zinc-400">both</span> fields: show stays that overlap the range (check-in on or
-              before the end date, check-out on or after the start date). If only the first field is set, only stays
-              with check-out on or after that day. If only the second is set, only stays with check-in on or before that
-              day.
-            </p>
-          </div>
-        ) : null}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-3">
