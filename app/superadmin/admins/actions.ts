@@ -5,6 +5,7 @@ import { getUserContext } from "@/lib/queries/context";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { DEFAULT_HOTEL_ADMIN_PASSWORD } from "@/lib/constants/admin";
 import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -55,7 +56,7 @@ export async function createHotelAdminAction(input: {
     return {
       ok: false,
       error:
-        "SUPABASE_SERVICE_ROLE_KEY is missing in web/.env.local. Add it from Supabase → Settings → API.",
+        "This action isn’t available because the server isn’t fully configured. Please contact your platform administrator.",
     };
   }
 
@@ -79,14 +80,17 @@ export async function createHotelAdminAction(input: {
   if (createErr) {
     const msg = createErr.message ?? "";
     if (msg.toLowerCase().includes("already") || msg.toLowerCase().includes("registered")) {
-      return { ok: false, error: "That email is already registered. Use a different email or link the user in Supabase." };
+      return { ok: false, error: "That email is already registered. Try another email address." };
     }
-    return { ok: false, error: createErr.message };
+    return { ok: false, error: toUserFacingError(createErr.message) };
   }
 
   const userId = created.user?.id;
   if (!userId) {
-    return { ok: false, error: "Auth user was not returned." };
+    return {
+      ok: false,
+      error: "Something went wrong while creating the account. Please try again or contact support.",
+    };
   }
 
   const profileRow = {
@@ -106,7 +110,12 @@ export async function createHotelAdminAction(input: {
 
   if (profErr) {
     await admin.auth.admin.deleteUser(userId);
-    return { ok: false, error: `Profile failed: ${profErr.message}` };
+    return {
+      ok: false,
+      error: toUserFacingError(profErr.message, {
+        fallback: "We couldn’t finish saving this administrator’s profile.",
+      }),
+    };
   }
 
   revalidatePath("/superadmin/admins");
@@ -134,7 +143,7 @@ async function requireSuperadminAdminClient(): Promise<
     return {
       ok: false,
       error:
-        "SUPABASE_SERVICE_ROLE_KEY is missing in web/.env.local. Add it from Supabase → Settings → API.",
+        "This action isn’t available because the server isn’t fully configured. Please contact your platform administrator.",
     };
   }
 }
@@ -186,7 +195,7 @@ export async function updateHotelAdminProfileAction(input: {
     .update({ full_name: fullName, tenant_id: tenantId })
     .eq("id", userId);
   if (upProf) {
-    return { ok: false, error: upProf.message };
+    return { ok: false, error: toUserFacingError(upProf.message) };
   }
 
   const { error: authErr } = await gate.sr.auth.admin.updateUserById(userId, {
@@ -198,7 +207,7 @@ export async function updateHotelAdminProfileAction(input: {
     if (msg.toLowerCase().includes("already") || msg.toLowerCase().includes("registered")) {
       return { ok: false, error: "That email is already used by another account." };
     }
-    return { ok: false, error: authErr.message };
+    return { ok: false, error: toUserFacingError(authErr.message) };
   }
 
   revalidatePath("/superadmin/admins");
@@ -244,7 +253,7 @@ export async function updateProvisionedAdminAction(input: {
     .update({ initial_admin_name: fullName, initial_admin_email: email })
     .eq("id", tenantId);
   if (uErr) {
-    return { ok: false, error: uErr.message };
+    return { ok: false, error: toUserFacingError(uErr.message) };
   }
 
   revalidatePath("/superadmin/admins");
@@ -282,7 +291,7 @@ export async function setHotelAdminBannedAction(input: {
     ban_duration: input.banned ? "876000h" : "none",
   });
   if (bErr) {
-    return { ok: false, error: bErr.message };
+    return { ok: false, error: toUserFacingError(bErr.message) };
   }
 
   revalidatePath("/superadmin/admins");
@@ -305,7 +314,7 @@ export async function clearProvisionedHotelAdminAction(input: { tenantId: string
     .eq("id", tenantId);
 
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toUserFacingError(error.message) };
   }
 
   revalidatePath("/superadmin/admins");
@@ -344,7 +353,7 @@ export async function deleteHotelAdminProfileAction(input: { userId: string }): 
       .eq("global_role", "hotel_admin");
 
     if (aErr) {
-      return { ok: false, error: aErr.message };
+      return { ok: false, error: toUserFacingError(aErr.message) };
     }
     if ((others ?? []).length <= 1) {
       return {
@@ -356,7 +365,7 @@ export async function deleteHotelAdminProfileAction(input: { userId: string }): 
 
   const { error: delAuth } = await gate.sr.auth.admin.deleteUser(input.userId);
   if (delAuth) {
-    return { ok: false, error: delAuth.message };
+    return { ok: false, error: toUserFacingError(delAuth.message) };
   }
 
   revalidatePath("/superadmin/admins");

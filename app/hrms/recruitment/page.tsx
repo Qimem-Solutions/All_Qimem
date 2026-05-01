@@ -4,6 +4,7 @@ import { canManageHrStaff } from "@/lib/auth/can-manage-hr-staff";
 import { fetchJobRequisitions, fetchJobCandidates } from "@/lib/queries/hrms-extended";
 import { fetchTenantDepartmentsForSelect } from "@/lib/queries/tenant-data";
 import { HrmsRecruitmentClient } from "@/components/hrms/hrms-recruitment-client";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 export default async function HrmsRecruitmentPage() {
   const ctx = await getUserContext();
@@ -44,7 +45,7 @@ export default async function HrmsRecruitmentPage() {
 
       {err ? (
         <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
-          {err} — run the latest Supabase migration if tables are missing.
+          {toUserFacingError(err)}
         </p>
       ) : null}
 

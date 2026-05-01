@@ -1,9 +1,24 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { getUserContext } from "@/lib/queries/context";
+import { normalizePrimaryBrandHex } from "@/lib/theme/tenant-brand-color";
+import {
+  billingServiceMonthFromPeriodEndIso,
+  subscriptionPeriodEndFromNow,
+} from "@/lib/subscriptions/billing-period";
+import { toUserFacingError } from "@/lib/errors/user-facing";
+import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
+import {
+  HOTEL_GALLERY_BUCKET,
+  HOTEL_GALLERY_COLUMN_MISSING_MESSAGE,
+  HOTEL_GALLERY_MAX_IMAGES,
+  hotelGalleryExtForMime,
+  validateHotelGalleryFile,
+} from "@/lib/hotel-gallery/shared";
 
 export type CreateTenantResult =
   | { ok: true; tenantId: string }
@@ -33,7 +48,8 @@ async function rollbackTenant(supabase: Awaited<ReturnType<typeof createClient>>
 /**
  * Inserts a tenant row plus default subscription and entitlements.
  * Optional cover image: uploaded to the `tenant-covers` Storage bucket and URL stored on the tenant.
- * Pass fields via FormData: name, slug, region?, description?, coverImage? (File).
+ * Pass fields via FormData: name, slug, region?, description?, coverImage?, logoImage?, primaryBrandColor? (#RRGGBB),
+ * optional repeated galleryImage (File) for portfolio slideshow (JPEG/PNG/WebP, 5MB each, max 12).
  * Hotel admins are created separately from Superadmin → Admins → Create admin.
  */
 export async function createTenantAction(formData: FormData): Promise<CreateTenantResult> {
@@ -68,6 +84,43 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
     }
   }
 
+  const logoEntry = formData.get("logoImage");
+  const logoFile = logoEntry instanceof File && logoEntry.size > 0 ? logoEntry : null;
+  if (logoFile) {
+    if (logoFile.size > MAX_COVER_BYTES) {
+      return { ok: false, error: "Logo must be 3MB or smaller." };
+    }
+    if (!Object.keys(COVER_MIME).includes(logoFile.type)) {
+      return { ok: false, error: "Logo must be JPEG, PNG, WebP, or GIF." };
+    }
+  }
+
+  const galleryEntries = formData
+    .getAll("galleryImage")
+    .filter((x): x is File => x instanceof File && x.size > 0);
+  if (galleryEntries.length > HOTEL_GALLERY_MAX_IMAGES) {
+    return {
+      ok: false,
+      error: `Property gallery is limited to ${HOTEL_GALLERY_MAX_IMAGES} photos. Remove some before continuing.`,
+    };
+  }
+  for (const f of galleryEntries) {
+    const gErr = validateHotelGalleryFile(f);
+    if (gErr) {
+      return { ok: false, error: gErr };
+    }
+  }
+
+  const primaryBrandRaw = String(formData.get("primaryBrandColor") ?? "").trim();
+  let primary_brand_color: string | null = null;
+  if (primaryBrandRaw) {
+    const parsed = normalizePrimaryBrandHex(primaryBrandRaw);
+    if (!parsed) {
+      return { ok: false, error: "Primary brand color must be a valid #RRGGBB hex value." };
+    }
+    primary_brand_color = parsed;
+  }
+
   const supabase = await createClient();
 
   const { data: tenant, error: tenantErr } = await supabase
@@ -77,6 +130,7 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
       slug,
       region: regionRaw || null,
       description: description || null,
+      primary_brand_color,
     })
     .select("id")
     .single();
@@ -89,20 +143,44 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
         error: `The subdomain "${slug}" is already taken. Choose another.`,
       };
     }
-    return { ok: false, error: msg };
+    return { ok: false, error: toUserFacingError(msg) };
   }
 
   const tenantId = tenant.id;
 
-  const { error: subErr } = await supabase.from("subscriptions").insert({
+  const periodEnd = subscriptionPeriodEndFromNow();
+  const { data: subRow, error: subErr } = await supabase
+    .from("subscriptions")
+    .insert({
+      tenant_id: tenantId,
+      plan: "basic",
+      status: "active",
+      current_period_end: periodEnd,
+    })
+    .select("id, tenant_id, current_period_end, plan")
+    .single();
+
+  if (subErr || !subRow) {
+    await rollbackTenant(supabase, tenantId);
+    return {
+      ok: false,
+      error: toUserFacingError(subErr?.message, {
+        fallback: "We couldn’t finish setting up billing for this property.",
+      }),
+    };
+  }
+
+  const { error: billErr } = await supabase.from("subscription_billing_events").insert({
     tenant_id: tenantId,
-    plan: "basic",
-    status: "active",
+    subscription_id: subRow.id as string,
+    service_month: billingServiceMonthFromPeriodEndIso(subRow.current_period_end as string),
+    plan: subRow.plan as string,
+    source: "initial",
   });
 
-  if (subErr) {
+  if (billErr) {
     await rollbackTenant(supabase, tenantId);
-    return { ok: false, error: subErr.message };
+    return { ok: false, error: toUserFacingError(billErr.message) };
   }
 
   const { error: entErr } = await supabase.from("tenant_entitlements").insert({
@@ -112,7 +190,7 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
 
   if (entErr) {
     await rollbackTenant(supabase, tenantId);
-    return { ok: false, error: entErr.message };
+    return { ok: false, error: toUserFacingError(entErr.message) };
   }
 
   if (coverFile) {
@@ -125,7 +203,12 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
     });
     if (upErr) {
       await rollbackTenant(supabase, tenantId);
-      return { ok: false, error: `Image upload failed: ${upErr.message}` };
+      return {
+        ok: false,
+        error: toUserFacingError(upErr.message, {
+          fallback: "We couldn’t upload the hotel image. Try another file or a smaller size.",
+        }),
+      };
     }
     const { data: pub } = supabase.storage.from("tenant-covers").getPublicUrl(path);
     const { error: urlErr } = await supabase
@@ -134,13 +217,90 @@ export async function createTenantAction(formData: FormData): Promise<CreateTena
       .eq("id", tenantId);
     if (urlErr) {
       await rollbackTenant(supabase, tenantId);
-      return { ok: false, error: urlErr.message };
+      return {
+        ok: false,
+        error: toUserFacingError(urlErr.message, { fallback: "We couldn’t save the hotel image link." }),
+      };
+    }
+  }
+
+  if (logoFile) {
+    const ext = COVER_MIME[logoFile.type] ?? "png";
+    const path = `${tenantId}/logo.${ext}`;
+    const buf = new Uint8Array(await logoFile.arrayBuffer());
+    const { error: logoUpErr } = await supabase.storage.from("tenant-covers").upload(path, buf, {
+      contentType: logoFile.type,
+      upsert: true,
+    });
+    if (logoUpErr) {
+      await rollbackTenant(supabase, tenantId);
+      return {
+        ok: false,
+        error: toUserFacingError(logoUpErr.message, { fallback: "We couldn’t upload the logo. Try another file or a smaller size." }),
+      };
+    }
+    const { data: logoPub } = supabase.storage.from("tenant-covers").getPublicUrl(path);
+    const { error: logoUrlErr } = await supabase
+      .from("tenants")
+      .update({ logo_url: logoPub.publicUrl })
+      .eq("id", tenantId);
+    if (logoUrlErr) {
+      await rollbackTenant(supabase, tenantId);
+      return {
+        ok: false,
+        error: toUserFacingError(logoUrlErr.message, { fallback: "We couldn’t save the logo link." }),
+      };
+    }
+  }
+
+  if (galleryEntries.length > 0) {
+    const uploadedGalleryPaths: string[] = [];
+    const urls: string[] = [];
+    for (const file of galleryEntries) {
+      const mime = file.type.toLowerCase();
+      const ext = hotelGalleryExtForMime(mime) ?? "jpg";
+      const path = `${tenantId}/${randomUUID()}.${ext}`;
+      const buf = new Uint8Array(await file.arrayBuffer());
+      const { error: gUpErr } = await supabase.storage.from(HOTEL_GALLERY_BUCKET).upload(path, buf, {
+        contentType: mime,
+        upsert: false,
+      });
+      if (gUpErr) {
+        for (const p of uploadedGalleryPaths) {
+          await supabase.storage.from(HOTEL_GALLERY_BUCKET).remove([p]);
+        }
+        await rollbackTenant(supabase, tenantId);
+        return {
+          ok: false,
+          error: toUserFacingError(gUpErr.message, {
+            fallback:
+              "We couldn’t upload property gallery photos. Try fewer or smaller files, or skip the gallery for now.",
+          }),
+        };
+      }
+      uploadedGalleryPaths.push(path);
+      const { data: gPub } = supabase.storage.from(HOTEL_GALLERY_BUCKET).getPublicUrl(path);
+      urls.push(gPub.publicUrl);
+    }
+    const { error: gUrlErr } = await supabase.from("tenants").update({ gallery_urls: urls }).eq("id", tenantId);
+    if (gUrlErr) {
+      for (const p of uploadedGalleryPaths) {
+        await supabase.storage.from(HOTEL_GALLERY_BUCKET).remove([p]);
+      }
+      await rollbackTenant(supabase, tenantId);
+      return {
+        ok: false,
+        error: isMissingDbColumnError(gUrlErr)
+          ? HOTEL_GALLERY_COLUMN_MISSING_MESSAGE
+          : toUserFacingError(gUrlErr.message, { fallback: "We couldn’t save the property gallery." }),
+      };
     }
   }
 
   revalidatePath("/superadmin/tenants");
   revalidatePath("/superadmin/dashboard");
   revalidatePath("/superadmin/subscriptions");
+  revalidatePath("/superadmin/billing");
   revalidatePath("/superadmin/admins");
 
   return { ok: true, tenantId };
@@ -211,7 +371,7 @@ export async function updateTenantAction(formData: FormData): Promise<ActionOk> 
     if (updErr.message.includes("duplicate") || updErr.message.includes("unique")) {
       return { ok: false, error: `The subdomain "${slug}" is already taken.` };
     }
-    return { ok: false, error: updErr.message };
+    return { ok: false, error: toUserFacingError(updErr.message) };
   }
 
   if (coverFile) {
@@ -223,7 +383,12 @@ export async function updateTenantAction(formData: FormData): Promise<ActionOk> 
       upsert: true,
     });
     if (upErr) {
-      return { ok: false, error: `Image upload failed: ${upErr.message}` };
+      return {
+        ok: false,
+        error: toUserFacingError(upErr.message, {
+          fallback: "We couldn’t upload the hotel image. Try another file or a smaller size.",
+        }),
+      };
     }
     const { data: pub } = supabase.storage.from("tenant-covers").getPublicUrl(path);
     const { error: urlErr } = await supabase
@@ -231,7 +396,10 @@ export async function updateTenantAction(formData: FormData): Promise<ActionOk> 
       .update({ cover_image_url: pub.publicUrl })
       .eq("id", tenantId);
     if (urlErr) {
-      return { ok: false, error: urlErr.message };
+      return {
+        ok: false,
+        error: toUserFacingError(urlErr.message, { fallback: "We couldn’t save the hotel image link." }),
+      };
     }
   }
 
@@ -261,7 +429,7 @@ export async function setTenantSubscriptionStatusAction(input: {
     .eq("tenant_id", input.tenantId)
     .limit(1);
   if (selErr) {
-    return { ok: false, error: selErr.message };
+    return { ok: false, error: toUserFacingError(selErr.message) };
   }
   if (!rows?.length) {
     return { ok: false, error: "This property has no subscription row. Create or link billing first." };
@@ -272,7 +440,7 @@ export async function setTenantSubscriptionStatusAction(input: {
     .update({ status: input.status })
     .eq("tenant_id", input.tenantId);
   if (upErr) {
-    return { ok: false, error: upErr.message };
+    return { ok: false, error: toUserFacingError(upErr.message) };
   }
   revalidateTenantAdmin();
   return { ok: true };
@@ -301,7 +469,7 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionOk> {
     return {
       ok: false,
       error:
-        "Server missing SUPABASE_SERVICE_ROLE_KEY (required to unlink staff profiles when deleting a tenant).",
+        "This action isn’t available because the server isn’t fully configured. Please contact your platform administrator.",
     };
   }
 
@@ -310,7 +478,7 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionOk> {
     .select("id", { count: "exact", head: true })
     .eq("tenant_id", tenantId);
   if (cErr) {
-    return { ok: false, error: cErr.message };
+    return { ok: false, error: toUserFacingError(cErr.message) };
   }
   if ((nProfiles ?? 0) > 0) {
     const { error: uErr } = await admin
@@ -318,7 +486,7 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionOk> {
       .update({ tenant_id: null })
       .eq("tenant_id", tenantId);
     if (uErr) {
-      return { ok: false, error: uErr.message };
+      return { ok: false, error: toUserFacingError(uErr.message) };
     }
   }
 
@@ -330,7 +498,7 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionOk> {
 
   const { error: dErr } = await admin.from("tenants").delete().eq("id", tenantId);
   if (dErr) {
-    return { ok: false, error: dErr.message };
+    return { ok: false, error: toUserFacingError(dErr.message) };
   }
   revalidateTenantAdmin();
   return { ok: true };

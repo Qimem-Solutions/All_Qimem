@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { LucideIcon } from "lucide-react";
+import { House, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HeaderProfileMenu } from "@/components/layout/header-profile-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -18,6 +18,8 @@ type HrrmShellProps = {
   readOnly?: boolean;
   /** Sticky workstation (Front desk / Inventory / All) for HRRM */
   stationControls?: React.ReactNode;
+  /** Hotel admins return to portfolio; module-only staff do not see this control. */
+  showBackToHome?: boolean;
 };
 
 export function HrrmShell({
@@ -27,6 +29,7 @@ export function HrrmShell({
   activePath,
   readOnly,
   stationControls,
+  showBackToHome = false,
 }: HrrmShellProps) {
   return (
     <div className="flex min-h-screen bg-background text-foreground">
@@ -81,6 +84,18 @@ export function HrrmShell({
           </span>
           <div className="flex flex-1 justify-end">
             <div className="flex items-center gap-3">
+              {showBackToHome ? (
+                <Link
+                  href="/hotel/dashboard"
+                  className={cn(
+                    "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-gold/40 bg-transparent px-3 py-1.5 text-xs font-medium text-gold transition-colors",
+                    "hover:bg-gold/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold",
+                  )}
+                >
+                  <House className="h-4 w-4" aria-hidden />
+                  Back to Home
+                </Link>
+              ) : null}
               <ThemeToggle size="sm" />
               <HeaderProfileMenu size="compact" />
             </div>

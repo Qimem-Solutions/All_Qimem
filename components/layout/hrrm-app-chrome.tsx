@@ -98,6 +98,7 @@ export function HrrmAppChrome({
   effective,
   canSwitch,
   brand = { title: "All Qimem HRRM", subtitle: "Operational Suite" },
+  showBackToHome = false,
 }: {
   children: ReactNode;
   readOnly?: boolean;
@@ -105,6 +106,7 @@ export function HrrmAppChrome({
   effective: HrrmEffective;
   canSwitch: boolean;
   brand?: { title: string; subtitle?: string };
+  showBackToHome?: boolean;
 }) {
   const activePath = usePathname();
   const navItems = useMemo(
@@ -118,6 +120,7 @@ export function HrrmAppChrome({
         activePath={activePath}
         sidebarItems={navItems}
         readOnly={readOnly}
+        showBackToHome={showBackToHome}
         stationControls={
           <StationWorkstationPicker effective={effective} orgScope={orgScope} canSwitch={canSwitch} />
         }

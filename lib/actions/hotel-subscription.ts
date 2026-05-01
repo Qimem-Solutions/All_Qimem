@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getUserContext } from "@/lib/queries/context";
 import { createClient } from "@/lib/supabase/server";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 const PLANS = ["basic", "pro", "advanced"] as const;
 export type HotelSubscriptionPlan = (typeof PLANS)[number];
@@ -48,7 +49,7 @@ export async function requestHotelPlanChangeAction(input: {
     .maybeSingle();
 
   if (subErr) {
-    return { ok: false, error: subErr.message };
+    return { ok: false, error: toUserFacingError(subErr.message) };
   }
   if (!sub) {
     return {
@@ -71,14 +72,7 @@ export async function requestHotelPlanChangeAction(input: {
     .maybeSingle();
 
   if (exErr) {
-    if (!exErr.message.includes("relation") && !exErr.message.includes("does not exist")) {
-      return { ok: false, error: exErr.message };
-    }
-    return {
-      ok: false,
-      error:
-        "Plan requests are not available until the database migration for subscription_plan_requests is applied.",
-    };
+    return { ok: false, error: toUserFacingError(exErr.message) };
   }
 
   const payload = {
@@ -99,7 +93,7 @@ export async function requestHotelPlanChangeAction(input: {
       .eq("id", existing.id)
       .eq("status", "pending");
     if (upErr) {
-      return { ok: false, error: upErr.message };
+      return { ok: false, error: toUserFacingError(upErr.message) };
     }
   } else {
     const { error: insErr } = await supabase.from("subscription_plan_requests").insert({
@@ -107,7 +101,7 @@ export async function requestHotelPlanChangeAction(input: {
       ...payload,
     });
     if (insErr) {
-      return { ok: false, error: insErr.message };
+      return { ok: false, error: toUserFacingError(insErr.message) };
     }
   }
 

@@ -13,7 +13,7 @@ export type NavItem = {
 
 type AppShellProps = {
   children: React.ReactNode;
-  brand: { title: string; subtitle?: string };
+  brand: { title: string; subtitle?: string; logoUrl?: string | null };
   navItems: NavItem[];
   activePath: string;
   headerCenter?: React.ReactNode;
@@ -48,9 +48,21 @@ export function AppShell({
     <div className="flex min-h-screen bg-background text-foreground">
       <aside className="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-sidebar">
         <div className="border-b border-border px-5 py-6">
-          <p className="text-xl font-semibold tracking-tight text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
-            {brand.title}
-          </p>
+          {brand.logoUrl ? (
+            <>
+              <span className="sr-only">{brand.title}</span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={brand.logoUrl}
+                alt=""
+                className="h-11 w-auto max-w-[200px] object-contain object-left"
+              />
+            </>
+          ) : (
+            <p className="text-xl font-semibold tracking-tight text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
+              {brand.title}
+            </p>
+          )}
           {brand.subtitle ? (
             <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-muted">
               {brand.subtitle}

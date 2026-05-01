@@ -16,6 +16,9 @@ import {
 } from "@/lib/constants/passwords";
 import { isMissingDbColumnError } from "@/lib/supabase/schema-errors";
 import { cn } from "@/lib/utils";
+import { toUserFacingError } from "@/lib/errors/user-facing";
+import type { TenantLoginBranding } from "@/lib/queries/tenant-branding-public";
+import { tenantBrandInlineStyle } from "@/lib/theme/tenant-brand-color";
 
 type Lang = "en" | "am";
 
@@ -61,7 +64,7 @@ const copy: Record<
       "Your account has no profile yet. Ask an administrator to provision your access.",
     genericError: "Something went wrong.",
     invalidCredentialsHint:
-      "Invalid credentials. Migrations only touch the database — they do not register a password in Auth. Add your project's service role key to .env.local as SUPABASE_SERVICE_ROLE_KEY, then run: npm run seed:superadmin (from the web folder). Or create the user manually under Supabase → Authentication → Users.",
+      "We couldn’t sign you in with those details. Check your email and password, or ask your administrator to confirm your account is set up.",
   },
   am: {
     unifiedSignIn: "የተዋሃደ ምልክት ግባ",
@@ -83,7 +86,7 @@ const copy: Record<
       "ለመለያዎ መገለጫ የለም። የመዳረሻ ማብቃያ እንዲስጥ አስተዳዳሪ ያግኙ።",
     genericError: "ስህተት ተፈጥሯል።",
     invalidCredentialsHint:
-      "የመግባት ዝርዝሮች ትክክል አይደሉም። የተጠቃሚውን በአስተዳዳሪ ይፍጠሩ ወይም በ Supabase Authentication ይመዝገቡ።",
+      "የመግባት ዝርዝሮች አልተቀበሉም። ኢሜይል እና የይለፍ ቃል ይፈትሹ፣ ወይም መለያዎ እንዲፈጠር አስተዳዳሪ ያግኙ።",
   },
 };
 
@@ -113,9 +116,14 @@ const oauthHint: Record<
 type LoginFormProps = {
   oauth?: string;
   oauthDetail?: string;
+  tenantBranding?: TenantLoginBranding | null;
 };
 
-export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
+export function LoginForm({
+  oauth,
+  oauthDetail,
+  tenantBranding,
+}: LoginFormProps = {}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -156,15 +164,10 @@ export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
         password,
       });
       if (signError) {
-        const raw = signError.message;
         const invalid =
-          /invalid login|invalid credentials|email not confirmed/i.test(raw);
+          /invalid login|invalid credentials|email not confirmed/i.test(signError.message);
         setError(
-          invalid
-            ? lang === "am"
-              ? `${raw} ${t.invalidCredentialsHint}`
-              : `${raw} ${copy.en.invalidCredentialsHint}`
-            : raw,
+          invalid ? t.invalidCredentialsHint : toUserFacingError(signError.message),
         );
         setLoading(false);
         return;
@@ -197,7 +200,7 @@ export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
 
       if (profileError) {
         await supabase.auth.signOut();
-        setError(profileError.message);
+        setError(toUserFacingError(profileError.message));
         setLoading(false);
         return;
       }
@@ -226,7 +229,9 @@ export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
       router.push(dashboardPathForRole(actualRole));
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.genericError);
+      setError(
+        toUserFacingError(err instanceof Error ? err.message : null, { fallback: t.genericError }),
+      );
     } finally {
       setLoading(false);
     }
@@ -251,17 +256,28 @@ export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
         },
       });
       if (oauthError) {
-        setError(oauthError.message);
+        setError(toUserFacingError(oauthError.message));
         setOauthLoading(false);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Google sign-in failed.");
+      setError(
+        toUserFacingError(err instanceof Error ? err.message : null, {
+          fallback: "Google sign-in didn’t complete. Please try again.",
+        }),
+      );
       setOauthLoading(false);
     }
   }
 
+  const tenantThemeStyle = tenantBranding?.primaryBrandColor
+    ? tenantBrandInlineStyle(tenantBranding.primaryBrandColor)
+    : undefined;
+
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
+    <div
+      className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12"
+      style={tenantThemeStyle}
+    >
       <div
         className="absolute inset-0 dark:hidden"
         style={{
@@ -301,8 +317,24 @@ export function LoginForm({ oauth, oauthDetail }: LoginFormProps = {}) {
         )}
       >
         <div className="text-center">
-          <h1 className="text-2xl font-bold tracking-[0.2em] text-gold [font-family:var(--font-outfit),system-ui,sans-serif]">
-            ALLQIMEM
+          {tenantBranding?.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={tenantBranding.logoUrl}
+              alt=""
+              className="mx-auto h-16 max-h-20 w-auto max-w-[220px] object-contain"
+            />
+          ) : null}
+          <h1
+            className={cn(
+              "font-bold text-gold [font-family:var(--font-outfit),system-ui,sans-serif]",
+              tenantBranding?.logoUrl
+                ? "mt-4 text-xl tracking-tight"
+                : "text-2xl tracking-[0.2em]",
+              !tenantBranding && "uppercase",
+            )}
+          >
+            {tenantBranding?.name ?? "ALLQIMEM"}
           </h1>
           <p className="mt-2 text-[10px] font-medium uppercase tracking-[0.35em] text-foreground/80 dark:text-zinc-300">
             {t.unifiedSignIn}

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { getUserContext } from "@/lib/queries/context";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 export type TenantRow = {
   id: string;
@@ -31,11 +32,14 @@ export async function fetchSuperadminDashboardStats() {
     tenantCount: tenantsRes.count ?? 0,
     employeeCount: employeesRes.count ?? 0,
     activeSubscriptions: subsRes.count ?? 0,
-    error:
-      tenantsRes.error?.message ||
-      employeesRes.error?.message ||
-      subsRes.error?.message ||
-      null,
+    error: (() => {
+      const raw =
+        tenantsRes.error?.message ||
+        employeesRes.error?.message ||
+        subsRes.error?.message ||
+        null;
+      return raw ? toUserFacingError(raw) : null;
+    })(),
   };
 }
 
@@ -53,13 +57,13 @@ export async function fetchTenantsForSelect(): Promise<{
       .from("tenants")
       .select("id, name, slug")
       .order("name", { ascending: true });
-    if (error) return { rows: [], error: error.message };
+    if (error) return { rows: [], error: toUserFacingError(error.message) };
     return { rows: data ?? [], error: null };
   } catch {
     return {
       rows: [],
       error:
-        "SUPABASE_SERVICE_ROLE_KEY is missing in web/.env.local — add it so the hotel list and admin roster can load (Dashboard → API → service_role).",
+        "The admin directory couldn’t load because the server isn’t fully configured. Please contact your platform administrator.",
     };
   }
 }
@@ -83,12 +87,12 @@ export async function fetchTenantsWithSubscriptions(): Promise<{
 
   const { data: tenants, error: tErr } = tenantsRes;
   if (tErr) {
-    return { rows: [], error: tErr.message };
+    return { rows: [], error: toUserFacingError(tErr.message) };
   }
 
   const { data: subs, error: sErr } = subsRes;
   if (sErr) {
-    return { rows: [], error: sErr.message };
+    return { rows: [], error: toUserFacingError(sErr.message) };
   }
 
   const latestSubByTenant = new Map<
@@ -163,22 +167,22 @@ export async function fetchSuperadminTenantsReport(): Promise<{
 
   const { data: tenants, error: tErr } = tenantsRes;
   if (tErr) {
-    return { rows: [], error: tErr.message };
+    return { rows: [], error: toUserFacingError(tErr.message) };
   }
 
   const { data: subs, error: sErr } = subsRes;
   if (sErr) {
-    return { rows: [], error: sErr.message };
+    return { rows: [], error: toUserFacingError(sErr.message) };
   }
 
   if (empRes.error) {
-    return { rows: [], error: `Employees: ${empRes.error.message}` };
+    return { rows: [], error: toUserFacingError(empRes.error.message) };
   }
   if (profRes.error) {
-    return { rows: [], error: `Profiles: ${profRes.error.message}` };
+    return { rows: [], error: toUserFacingError(profRes.error.message) };
   }
   if (roomsRes.error) {
-    return { rows: [], error: `Rooms: ${roomsRes.error.message}` };
+    return { rows: [], error: toUserFacingError(roomsRes.error.message) };
   }
 
   const countBy = (rows: { tenant_id: string | null }[] | null) => {
@@ -267,7 +271,7 @@ export async function fetchProfilesForAdminList(): Promise<{
     .neq("global_role", "superadmin")
     .order("created_at", { ascending: false });
 
-  if (error) return { rows: [], error: error.message };
+  if (error) return { rows: [], error: toUserFacingError(error.message) };
 
   const tenantIds = [
     ...new Set((data ?? []).map((p) => p.tenant_id).filter(Boolean)),
@@ -307,9 +311,9 @@ export type AdminAssignmentRow = {
 };
 
 /**
- * Linked profiles (tenant_id set) plus tenants that recorded an admin at creation but have no
- * linked profile yet. Uses the service role after verifying superadmin so RLS / is_superadmin()
- * cannot hide rows from the dashboard.
+ * Linked profiles with role hotel_admin (tenant_id set) plus tenants that recorded an admin at
+ * creation but have no linked profile yet. Uses the service role after verifying superadmin so RLS /
+ * is_superadmin() cannot hide rows from the dashboard.
  */
 export async function fetchAdminsForSuperadmin(): Promise<{
   rows: AdminAssignmentRow[];
@@ -327,7 +331,7 @@ export async function fetchAdminsForSuperadmin(): Promise<{
     return {
       rows: [],
       error:
-        "SUPABASE_SERVICE_ROLE_KEY is missing in web/.env.local — required to list hotel admins and hotels. Add the service_role secret from Supabase → Settings → API.",
+        "The admin directory couldn’t load because the server isn’t fully configured. Please contact your platform administrator.",
     };
   }
 
@@ -335,10 +339,10 @@ export async function fetchAdminsForSuperadmin(): Promise<{
     .from("profiles")
     .select("id, full_name, global_role, tenant_id, created_at")
     .not("tenant_id", "is", null)
-    .neq("global_role", "superadmin")
+    .eq("global_role", "hotel_admin")
     .order("created_at", { ascending: false });
 
-  if (pErr) return { rows: [], error: pErr.message };
+  if (pErr) return { rows: [], error: toUserFacingError(pErr.message) };
 
   const { data: tenants, error: tErr } = await sr
     .from("tenants")
@@ -346,14 +350,7 @@ export async function fetchAdminsForSuperadmin(): Promise<{
     .order("created_at", { ascending: false });
 
   if (tErr) {
-    return {
-      rows: [],
-      error:
-        tErr.message +
-        (tErr.message.includes("column") || tErr.message.includes("schema cache")
-          ? " — Run the latest Supabase migrations (tenant initial_admin columns)."
-          : ""),
-    };
+    return { rows: [], error: toUserFacingError(tErr.message) };
   }
 
   const tenantNameMap = new Map((tenants ?? []).map((t) => [t.id, t.name]));
@@ -418,7 +415,7 @@ export async function fetchSubscriptionPlansSummary() {
     .from("subscriptions")
     .select("plan, status");
 
-  if (error) return { byPlan: {} as Record<string, number>, error: error.message };
+  if (error) return { byPlan: {} as Record<string, number>, error: toUserFacingError(error.message) };
 
   const byPlan: Record<string, number> = { basic: 0, pro: 0, advanced: 0 };
   for (const s of data ?? []) {
@@ -449,7 +446,7 @@ export async function fetchSubscriptionsWithTenants(): Promise<{
     .select("id, tenant_id, plan, status, created_at, current_period_end")
     .order("created_at", { ascending: false });
 
-  if (sErr) return { rows: [], error: sErr.message };
+  if (sErr) return { rows: [], error: toUserFacingError(sErr.message) };
 
   const tenantIds = [...new Set((subs ?? []).map((s) => s.tenant_id))];
   let nameMap = new Map<string, string>();

@@ -12,6 +12,7 @@ import {
   activateHotelStaffUserAction,
   deactivateHotelStaffUserAction,
   deleteHotelStaffUserAction,
+  submitHotelAdminSelfChangeRequestAction,
   updateHotelStaffUserAction,
 } from "@/lib/actions/hotel-users";
 import type { TenantUserWithEmployee } from "@/lib/queries/tenant-data";
@@ -44,7 +45,6 @@ function fillFormFromUser(u: TenantUserWithEmployee) {
     return {
       ...base,
       jobTitle: "",
-      employeeCode: "",
       hireDate: "",
       deptId: "",
       status: "active" as const,
@@ -54,7 +54,6 @@ function fillFormFromUser(u: TenantUserWithEmployee) {
   return {
     ...base,
     jobTitle: u.employee.job_title ?? "",
-    employeeCode: u.employee.employee_code ?? "",
     hireDate: u.employee.hire_date ? u.employee.hire_date.slice(0, 10) : "",
     deptId: u.employee.department_id ?? "",
     status: normalizeStatus(u.employee.status),
@@ -82,13 +81,16 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
   const [hrms, setHrms] = useState(user.hrms_access);
   const [hrrm, setHrrm] = useState(user.hrrm_access);
   const [jobTitle, setJobTitle] = useState("");
-  const [employeeCode, setEmployeeCode] = useState("");
   const [hireDate, setHireDate] = useState("");
   const [deptId, setDeptId] = useState("");
   const [status, setStatus] = useState("active");
   const [monthlySalary, setMonthlySalary] = useState("");
 
   const isSelf = user.id === currentUserId;
+  const isPeerHotelAdmin =
+    user.global_role === "hotel_admin" && user.id !== currentUserId;
+  const isSelfHotelAdmin =
+    user.global_role === "hotel_admin" && user.id === currentUserId;
   /** Matches deactivate flow (employee marked inactive + auth banned); drives Activate vs Deactivate menu label. */
   const employeeLooksDeactivated = user.employee?.status?.toLowerCase() === "inactive";
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -146,7 +148,6 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
     setHrms(f.hrms);
     setHrrm(f.hrrm);
     setJobTitle(f.jobTitle);
-    setEmployeeCode(f.employeeCode);
     setHireDate(f.hireDate);
     setDeptId(f.deptId);
     setStatus(f.status);
@@ -177,23 +178,41 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
       }
     }
 
-    const res = await updateHotelStaffUserAction({
-      userId: user.id,
-      fullName,
-      hrmsAccess: hrms,
-      hrrmAccess: hrrm,
-      employee: user.employee
-        ? {
-            id: user.employee.id,
-            jobTitle: jobTitle.trim() || null,
-            employeeCode: employeeCode.trim() || null,
-            hireDate: hireDate.trim() || null,
-            departmentId: deptId.trim() || null,
-            status,
-            monthlySalaryCents,
-          }
-        : undefined,
-    });
+    const res = isSelfHotelAdmin
+      ? await submitHotelAdminSelfChangeRequestAction({
+          userId: user.id,
+          fullName,
+          hrmsAccess: hrms,
+          hrrmAccess: hrrm,
+          employee: user.employee
+            ? {
+                id: user.employee.id,
+                jobTitle: jobTitle.trim() || null,
+                employeeCode: user.employee.employee_code?.trim() || null,
+                hireDate: hireDate.trim() || null,
+                departmentId: deptId.trim() || null,
+                status,
+                monthlySalaryCents,
+              }
+            : undefined,
+        })
+      : await updateHotelStaffUserAction({
+          userId: user.id,
+          fullName,
+          hrmsAccess: hrms,
+          hrrmAccess: hrrm,
+          employee: user.employee
+            ? {
+                id: user.employee.id,
+                jobTitle: jobTitle.trim() || null,
+                employeeCode: user.employee.employee_code?.trim() || null,
+                hireDate: hireDate.trim() || null,
+                departmentId: deptId.trim() || null,
+                status,
+                monthlySalaryCents,
+              }
+            : undefined,
+        });
     setLoading(false);
     if (!res.ok) {
       setError(res.error);
@@ -265,32 +284,48 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
   return (
     <>
       <div className="relative flex flex-col items-end" ref={wrapRef}>
-        <button
-          ref={triggerRef}
-          type="button"
-          className={cn(
-            "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-muted transition-colors hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/5",
-          )}
-          aria-label="User actions"
-          aria-expanded={menuOpen}
-          aria-haspopup="menu"
-          onClick={() => {
-            setError(null);
-            if (menuOpen) {
-              setMenuOpen(false);
-              setMenuStyle(undefined);
-            } else if (triggerRef.current) {
-              setMenuStyle(getFloatingMenuStyle(triggerRef.current));
-              setMenuOpen(true);
-            }
-          }}
-        >
-          <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
-        </button>
-        {error ? <p className="mt-1 max-w-[10rem] text-right text-xs text-red-600 dark:text-red-400">{error}</p> : null}
+        {isPeerHotelAdmin ? (
+          <button
+            type="button"
+            disabled
+            className="inline-flex h-8 w-8 shrink-0 cursor-not-allowed items-center justify-center rounded-lg border border-border bg-surface opacity-45 text-muted"
+            aria-label="Actions unavailable for other hotel administrators"
+            title="You cannot edit another hotel administrator. Platform staff manage administrator accounts."
+          >
+            <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        ) : (
+          <>
+            <button
+              ref={triggerRef}
+              type="button"
+              className={cn(
+                "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-muted transition-colors hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/5",
+              )}
+              aria-label="User actions"
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              onClick={() => {
+                setError(null);
+                if (menuOpen) {
+                  setMenuOpen(false);
+                  setMenuStyle(undefined);
+                } else if (triggerRef.current) {
+                  setMenuStyle(getFloatingMenuStyle(triggerRef.current));
+                  setMenuOpen(true);
+                }
+              }}
+            >
+              <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+            {error ? (
+              <p className="mt-1 max-w-[10rem] text-right text-xs text-red-600 dark:text-red-400">{error}</p>
+            ) : null}
+          </>
+        )}
       </div>
 
-      {typeof document !== "undefined" && menuOpen && menuStyle
+      {typeof document !== "undefined" && !isPeerHotelAdmin && menuOpen && menuStyle
         ? createPortal(
             <div
               ref={menuRef}
@@ -300,7 +335,7 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
             >
               <button type="button" role="menuitem" className={menuItemClass} onClick={startEdit}>
                 <Pencil className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-                Edit
+                {isSelfHotelAdmin ? "Request changes" : "Edit"}
               </button>
               <button
                 type="button"
@@ -349,10 +384,16 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
           />
           <form
             onSubmit={onSubmit}
-            className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-surface-elevated p-6 shadow-xl"
+            className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-surface-elevated p-6 text-start shadow-xl"
           >
-            <h2 className="text-lg font-semibold text-foreground">Edit user</h2>
-            <p className="mt-1 text-sm text-muted">Profile, suite access, and optional HR record.</p>
+            <h2 className="text-lg font-semibold text-foreground">
+              {isSelfHotelAdmin ? "Request profile changes" : "Edit user"}
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              {isSelfHotelAdmin
+                ? "Updates apply after a platform superadmin approves your request. Until then, your profile stays unchanged."
+                : "Profile, suite access, and optional HR record."}
+            </p>
             {error ? (
               <p className="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
                 {error}
@@ -487,17 +528,6 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
                       placeholder="Leave empty to keep current"
                     />
                   </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted" htmlFor={`u-code-${user.id}`}>
-                      Employee code
-                    </label>
-                    <Input
-                      id={`u-code-${user.id}`}
-                      className="mt-1.5"
-                      value={employeeCode}
-                      onChange={(e) => setEmployeeCode(e.target.value)}
-                    />
-                  </div>
                 </div>
               </div>
             ) : null}
@@ -507,7 +537,13 @@ export function HotelStaffRowActions({ user, departments, currentUserId }: Props
                 Cancel
               </Button>
               <Button type="submit" disabled={loading}>
-                {loading ? "Saving…" : "Save changes"}
+                {loading
+                  ? isSelfHotelAdmin
+                    ? "Submitting…"
+                    : "Saving…"
+                  : isSelfHotelAdmin
+                    ? "Submit request"
+                    : "Save changes"}
               </Button>
             </div>
           </form>

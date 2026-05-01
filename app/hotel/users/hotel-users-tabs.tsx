@@ -16,6 +16,16 @@ function formatRole(role: string | null) {
   return role.replace(/_/g, " ");
 }
 
+/** Matches platform-role badge colors — used only for visuals in role distribution */
+function roleBreakdownAccent(roleKey: string) {
+  const r = (roleKey ?? "user").toLowerCase();
+  if (r === "hotel_admin") return "bg-gold";
+  if (r === "superadmin") return "bg-red-500";
+  if (r === "hrms") return "bg-orange-500";
+  if (r === "hrrm") return "bg-orange-600";
+  return "bg-zinc-500";
+}
+
 function accessTone(a: ServiceAccessLevel) {
   if (a === "manage") return "gold" as const;
   if (a === "view") return "orange" as const;
@@ -48,7 +58,6 @@ export function HotelUsersTabs({
   departments,
   departmentError,
   bucketEntries,
-  maxBucket,
   departmentsForSelect,
   currentUserId,
 }: {
@@ -56,29 +65,16 @@ export function HotelUsersTabs({
   departments: DepartmentCountRow[];
   departmentError: string | null;
   bucketEntries: [string, number][];
-  maxBucket: number;
   departmentsForSelect: { id: string; name: string }[];
   currentUserId: string;
 }) {
-  const [tab, setTab] = useState<TabId>("staff");
+  const [tab, setTab] = useState<TabId>("departments");
   const staffTotal = users.length;
   const withHrRecord = users.filter((u) => u.employee).length;
 
   return (
     <>
       <div className="flex flex-wrap gap-2 border-b border-border pb-2 text-sm">
-        <button
-          type="button"
-          onClick={() => setTab("staff")}
-          className={cn(
-            "border-b-2 pb-2 font-medium transition-colors",
-            tab === "staff"
-              ? "border-gold text-gold"
-              : "border-transparent text-muted hover:text-foreground",
-          )}
-        >
-          All staff ({staffTotal})
-        </button>
         <button
           type="button"
           onClick={() => setTab("departments")}
@@ -90,6 +86,18 @@ export function HotelUsersTabs({
           )}
         >
           All departments ({departments.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("staff")}
+          className={cn(
+            "border-b-2 pb-2 font-medium transition-colors",
+            tab === "staff"
+              ? "border-gold text-gold"
+              : "border-transparent text-muted hover:text-foreground",
+          )}
+        >
+          All staff ({staffTotal})
         </button>
       </div>
 
@@ -210,26 +218,61 @@ export function HotelUsersTabs({
             <CardContent>
               {bucketEntries.length === 0 ? (
                 <p className="text-sm text-muted">No role data.</p>
+              ) : staffTotal === 0 ? (
+                <p className="text-sm text-muted">No staff to summarize.</p>
               ) : (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {bucketEntries.map(([label, n]) => (
-                    <div key={label} className="min-w-0">
-                      <div className="mb-1.5 flex justify-between text-sm text-muted">
-                        <span className="truncate font-medium capitalize text-foreground">
-                          {formatRole(label)}
-                        </span>
-                        <span className="shrink-0 pl-2">
-                          {n} user{n === 1 ? "" : "s"}
-                        </span>
-                      </div>
-                      <div className="h-2.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-                        <div
-                          className="h-full min-w-0 rounded-full bg-gold/70"
-                          style={{ width: `${Math.round((n / maxBucket) * 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                <div className="space-y-5">
+                  <p className="text-sm text-muted">
+                    <strong className="font-semibold tabular-nums text-foreground">{staffTotal}</strong>{" "}
+                    staff account
+                    {staffTotal === 1 ? "" : "s"}, grouped by{" "}
+                    <strong className="font-semibold text-foreground">{bucketEntries.length}</strong> platform role
+                    {bucketEntries.length === 1 ? "" : "s"}.
+                  </p>
+
+                  <div
+                    className="flex h-4 w-full overflow-hidden rounded-full bg-muted/40 ring-1 ring-border/60"
+                    role="group"
+                    aria-label="Share of staff by platform role"
+                  >
+                    {bucketEntries.map(([label, n]) => (
+                      <div
+                        key={label}
+                        className={`min-w-[6px] first:rounded-l-full last:rounded-r-full ${roleBreakdownAccent(
+                          label,
+                        )} opacity-90 hover:opacity-100`}
+                        style={{ flex: `${n} 1 0%` }}
+                        title={`${formatRole(label)}: ${n} (${Math.round((n / staffTotal) * 100)}%)`}
+                      />
+                    ))}
+                  </div>
+
+                  <ul className="space-y-2" aria-label="Count and percentage per role">
+                    {bucketEntries.map(([label, n]) => {
+                      const pct = Math.round((n / staffTotal) * 100);
+                      return (
+                        <li
+                          key={label}
+                          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg border border-border/80 bg-muted/25 px-3 py-2.5 text-sm dark:bg-muted/15"
+                        >
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <span
+                              className={`h-2.5 w-2.5 shrink-0 rounded-sm ${roleBreakdownAccent(label)}`}
+                              aria-hidden
+                            />
+                            <span className="truncate capitalize text-foreground">
+                              {formatRole(label)}
+                            </span>
+                          </span>
+                          <span className="shrink-0 tabular-nums text-muted">
+                            <strong className="text-base font-semibold text-foreground">{n}</strong>
+                            {" · "}
+                            {pct}% of staff
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
               )}
             </CardContent>

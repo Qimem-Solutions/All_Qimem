@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { toUserFacingError } from "@/lib/errors/user-facing";
 
 export type PendingPlanRequestSummary = {
   id: string;
@@ -57,7 +58,7 @@ export async function fetchPendingPlanRequestForTenant(
     ) {
       return { request: null, error: null };
     }
-    return { request: null, error: error.message };
+    return { request: null, error: toUserFacingError(error.message) };
   }
   if (!data) {
     return { request: null, error: null };
@@ -86,7 +87,7 @@ export async function fetchPendingPlanChangeRequestsForSuperadmin(): Promise<{
     .order("created_at", { ascending: true });
 
   if (rErr) {
-    return { rows: [], error: rErr.message };
+    return { rows: [], error: toUserFacingError(rErr.message) };
   }
   const list = (reqs ?? []) as Record<string, unknown>[];
   if (list.length === 0) {
@@ -99,7 +100,7 @@ export async function fetchPendingPlanChangeRequestsForSuperadmin(): Promise<{
     .in("id", tenantIds);
 
   if (tErr) {
-    return { rows: [], error: tErr.message };
+    return { rows: [], error: toUserFacingError(tErr.message) };
   }
   const byId = new Map((tenants ?? []).map((t) => [t.id, t] as const));
   const rows = list.map((r) => {

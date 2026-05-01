@@ -27,6 +27,7 @@ export type EmployeeRow = {
   department_name: string | null;
   photo_url: string | null;
   monthly_salary_cents: number | null;
+  global_role: string | null;
 };
 
 function StatusBadge({ s, kind }: { s: string; kind: "employee" | "account" }) {
@@ -50,7 +51,7 @@ function initials(name: string) {
 
 type ViewTab = "directory" | "users";
 
-const ROSTER_PAGE_SIZE = 20;
+const ROSTER_PAGE_SIZE = 10;
 
 type Props = {
   tenantId: string;
@@ -74,7 +75,7 @@ export function EmployeesDirectoryClient({
   departmentFormError,
 }: Props) {
   const [q, setQ] = useState("");
-  /** "" = all, "__none__" = no department / account-only, else department name */
+  /** "" = all, "__hotel_admin__" = login profiles with hotel_admin role, else department name */
   const [dept, setDept] = useState<string>("");
   const [viewTab, setViewTab] = useState<ViewTab>("directory");
   const [rosterPage, setRosterPage] = useState(1);
@@ -86,10 +87,8 @@ export function EmployeesDirectoryClient({
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
-      if (dept === "__none__") {
-        if (r.kind === "account") return true;
-        if (!r.department_name) return true;
-        return false;
+      if (dept === "__hotel_admin__") {
+        return r.kind === "account" && r.global_role === "hotel_admin";
       }
       if (dept && (r.department_name ?? "") !== dept) return false;
       if (!needle) return true;
@@ -115,8 +114,6 @@ export function EmployeesDirectoryClient({
     setRosterPage((p) => Math.min(Math.max(1, p), rosterTotalPages));
   }, [rosterTotalPages]);
 
-  const [showAdvanced, setShowAdvanced] = useState(false);
-
   return (
     <>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -130,14 +127,6 @@ export function EmployeesDirectoryClient({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            type="button"
-            onClick={() => setShowAdvanced((v) => !v)}
-            aria-pressed={showAdvanced}
-          >
-            {showAdvanced ? "Hide filters" : "Advanced filters"}
-          </Button>
           {canManageStaff ? (
             <>
               <AddDepartmentButton />
@@ -215,7 +204,7 @@ export function EmployeesDirectoryClient({
               aria-label="Filter by department"
             >
               <option value="">All departments</option>
-              <option value="__none__">Unassigned / account only</option>
+              <option value="__hotel_admin__">Hotel Admin</option>
               {departmentFilterNames.map((name) => (
                 <option key={name} value={name}>
                   {name}
@@ -225,11 +214,6 @@ export function EmployeesDirectoryClient({
           </div>
         </CardHeader>
         <CardContent>
-          {showAdvanced ? (
-            <p className="mb-4 rounded-lg border border-border bg-surface/40 px-3 py-2 text-xs text-muted">
-              Filters combine: department (including unassigned), search. Clear to reset.
-            </p>
-          ) : null}
           {filtered.length === 0 && !error ? (
             <p className="text-sm text-muted">
               {rows.length === 0

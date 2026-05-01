@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { requestHotelPlanChangeAction } from "@/lib/actions/hotel-subscription";
 import { cn } from "@/lib/utils";
+import { planPricingDisplay } from "@/lib/constants/plan-pricing-display";
 
 const OPTIONS: { value: string; label: string; blurb: string }[] = [
   {
@@ -109,7 +110,12 @@ export function HotelSubscriptionForm({
               className="mt-1 h-4 w-4 shrink-0 border-border text-gold focus:ring-gold disabled:cursor-not-allowed"
             />
             <span>
-              <span className="font-medium text-foreground">{o.label}</span>
+              <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
+                <span className="font-medium text-foreground">{o.label}</span>
+                <span className="text-sm font-semibold tabular-nums text-gold/90">
+                  ETB {planPricingDisplay(o.value).amount}/month
+                </span>
+              </span>
               <span className="mt-1 block text-sm text-muted">{o.blurb}</span>
             </span>
           </label>

@@ -4,11 +4,8 @@ import { useActionState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Images, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  removeHotelGalleryImageAction,
-  uploadHotelGalleryImageAction,
-  type GalleryActionResult,
-} from "@/lib/actions/hotel-gallery";
+import { removeHotelGalleryImageAction, uploadHotelGalleryImageAction } from "@/lib/actions/hotel-gallery";
+import type { GalleryActionResult } from "@/lib/hotel-gallery/shared";
 
 function Message({ state }: { state: GalleryActionResult | null }) {
   if (!state) return null;

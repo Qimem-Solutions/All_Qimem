@@ -4,8 +4,10 @@ import {
   fetchTenantName,
   fetchTenantPortfolio,
   fetchTenantSubscription,
+  fetchHotelTenantSettings,
   type TenantPortfolio,
 } from "@/lib/queries/tenant-data";
+import { fetchJobRequisitions } from "@/lib/queries/hrms-extended";
 import { getServiceAccessForLayout } from "@/lib/auth/service-access";
 import {
   StaffModulePicker,
@@ -48,12 +50,21 @@ export default async function HotelDashboardPage({
     return <StaffModulePicker notice={notice} modules={modules} />;
   }
 
-  const [{ portfolio, error: pErr }, { subscription, error: subErr }, { name: fallbackName }] =
-    await Promise.all([
-      fetchTenantPortfolio(tenantId),
-      fetchTenantSubscription(tenantId),
-      fetchTenantName(tenantId),
-    ]);
+  const [
+    { portfolio, error: pErr },
+    { subscription, error: subErr },
+    { name: fallbackName },
+    { rows: jobRows, error: jobsErr },
+    { settings: hotelSettings },
+  ] = await Promise.all([
+    fetchTenantPortfolio(tenantId),
+    fetchTenantSubscription(tenantId),
+    fetchTenantName(tenantId),
+    fetchJobRequisitions(tenantId),
+    fetchHotelTenantSettings(tenantId),
+  ]);
+
+  const openJobs = (jobRows ?? []).filter((j) => j.status === "open");
 
   const planLabel = subscription?.plan
     ? subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1)
@@ -73,6 +84,15 @@ export default async function HotelDashboardPage({
     gallery_urls: [],
   };
 
+  const contactPropertyName = hotelSettings?.name?.trim() || displayPortfolio.name;
+  const contact = {
+    propertyName: contactPropertyName,
+    region: hotelSettings?.region?.trim() || null,
+    phone: hotelSettings?.contact_phone ?? null,
+    email: hotelSettings?.reservations_email ?? null,
+    policiesNotes: hotelSettings?.policies_notes ?? null,
+  };
+
   return (
     <div className="space-y-6">
       {showNotice}
@@ -84,10 +104,14 @@ export default async function HotelDashboardPage({
       <div>
         <h1 className="sr-only">Hotel portfolio</h1>
         <HotelPortfolioView
+          tenantId={tenantId}
           portfolio={displayPortfolio}
           planLabel={planLabel}
           subscriptionStatus={subscription?.status ?? null}
           subError={subErr}
+          openJobs={openJobs}
+          jobsError={jobsErr}
+          contact={contact}
         />
       </div>
     </div>

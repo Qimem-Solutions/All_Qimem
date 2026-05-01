@@ -11,6 +11,8 @@ import {
 import { AddDepartmentButton } from "@/components/hrms/add-department-button";
 import { CreateStaffButton } from "@/components/hrms/create-staff-button";
 import { HotelUsersTabs } from "./hotel-users-tabs";
+import { fetchSelfPendingHotelAdminProfileRequest } from "@/lib/queries/hotel-admin-profile-requests";
+import { formatRelative } from "@/lib/format";
 
 export default async function HotelUsersPage() {
   const ctx = await getUserContext();
@@ -34,12 +36,17 @@ export default async function HotelUsersPage() {
     );
   }
 
-  const [{ rows: users, error }, { rows: departmentsForSelect, error: deptSelectErr }, analytics] =
-    await Promise.all([
-      fetchTenantUsersForHotel(tenantId),
-      fetchTenantDepartmentsForSelect(tenantId),
-      fetchHrmsReportsAnalytics(tenantId),
-    ]);
+  const [
+    { rows: users, error },
+    { rows: departmentsForSelect, error: deptSelectErr },
+    analytics,
+    pendingSelfReq,
+  ] = await Promise.all([
+    fetchTenantUsersForHotel(tenantId),
+    fetchTenantDepartmentsForSelect(tenantId),
+    fetchHrmsReportsAnalytics(tenantId),
+    fetchSelfPendingHotelAdminProfileRequest(tenantId, ctx.userId),
+  ]);
   const deptCountsRes = {
     rows: analytics.departments,
     error: analytics.error,
@@ -51,7 +58,6 @@ export default async function HotelUsersPage() {
     roleBuckets[key] = (roleBuckets[key] ?? 0) + 1;
   }
   const bucketEntries = Object.entries(roleBuckets).sort((a, b) => b[1] - a[1]);
-  const maxBucket = Math.max(1, ...bucketEntries.map(([, n]) => n));
 
   return (
     <div className="space-y-8">
@@ -91,12 +97,26 @@ export default async function HotelUsersPage() {
         </p>
       ) : null}
 
+      {pendingSelfReq.error ? (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
+          Could not check pending profile requests: {pendingSelfReq.error}
+        </p>
+      ) : null}
+
+      {pendingSelfReq.row ? (
+        <p className="rounded-lg border border-gold/35 bg-gold/10 px-4 py-3 text-sm text-zinc-100">
+          You have a{" "}
+          <strong className="text-gold">pending profile change request</strong> awaiting platform
+          approval (submitted {formatRelative(pendingSelfReq.row.created_at)}). Your profile stays as it
+          was until a superadmin approves.
+        </p>
+      ) : null}
+
       <HotelUsersTabs
         users={users}
         departments={deptCountsRes.rows}
         departmentError={deptCountsRes.error}
         bucketEntries={bucketEntries}
-        maxBucket={maxBucket}
         departmentsForSelect={deptSelectErr ? [] : departmentsForSelect}
         currentUserId={ctx.userId}
       />
