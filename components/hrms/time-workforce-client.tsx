@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
@@ -70,6 +70,19 @@ export function TimeWorkforceClient({
 }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<"overview" | "shifts" | "attendance">("overview");
+  const msgTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (msgTimer.current) window.clearTimeout(msgTimer.current);
+    };
+  }, []);
+
+  function showMsg(m: string, ms = 3000) {
+    setMsg(m);
+    if (msgTimer.current) window.clearTimeout(msgTimer.current);
+    msgTimer.current = window.setTimeout(() => setMsg(null), ms) as unknown as number;
+  }
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [shiftDeleteId, setShiftDeleteId] = useState<string | null>(null);
@@ -84,6 +97,10 @@ export function TimeWorkforceClient({
   const [attFilter, setAttFilter] = useState<"all" | string>("all");
   const [attPage, setAttPage] = useState(1);
   const [attPageSize, setAttPageSize] = useState(10);
+  const [overviewQuery, setOverviewQuery] = useState("");
+  const [overviewStatus, setOverviewStatus] = useState<"all" | "working" | "away">("all");
+  const [overviewPage, setOverviewPage] = useState(1);
+  const [overviewPageSize, setOverviewPageSize] = useState(10);
   const [overviewGeneratedAt] = useState(() => Date.now());
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -177,7 +194,7 @@ export function TimeWorkforceClient({
     e.currentTarget.reset();
     (e.currentTarget.elements.namedItem("shiftDate") as HTMLInputElement)?.setAttribute("value", today);
     router.refresh();
-    setMsg("Shift saved.");
+    showMsg("Shift saved.");
   }
 
   async function onPunchSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -197,7 +214,7 @@ export function TimeWorkforceClient({
       return;
     }
     router.refresh();
-    setMsg("Punch recorded.");
+    showMsg("Punch recorded.");
   }
 
   function requestRemoveShift(id: string) {
@@ -304,51 +321,107 @@ export function TimeWorkforceClient({
               <CardDescription>User, work date, and total tracked time from recent punches.</CardDescription>
             </CardHeader>
             <CardContent className="overflow-x-auto">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row">
+                <Input
+                  placeholder="Search user or department…"
+                  value={overviewQuery}
+                  onChange={(e) => {
+                    setOverviewQuery(e.target.value);
+                    setOverviewPage(1);
+                  }}
+                />
+                <select
+                  className="h-10 min-w-[11rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
+                  value={overviewStatus}
+                  onChange={(e) => {
+                    setOverviewStatus(e.target.value as "all" | "working" | "away");
+                    setOverviewPage(1);
+                  }}
+                >
+                  <option value="all">All statuses</option>
+                  <option value="working">Working</option>
+                  <option value="away">Away</option>
+                </select>
+              </div>
               {attendanceOverview.length === 0 ? (
                 <p className="text-sm text-zinc-500">No attendance activity to summarize yet.</p>
               ) : (
-                <table className="w-full min-w-[760px] text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-xs uppercase text-zinc-500">
-                      <th className="pb-3 font-medium">User</th>
-                      <th className="pb-3 font-medium">Date</th>
-                      <th className="pb-3 font-medium">Total time</th>
-                      <th className="pb-3 font-medium">Latest punch</th>
-                      <th className="pb-3 font-medium">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {attendanceOverview.map((row) => (
-                      <tr key={`${row.employeeName}-${row.workDate}`} className="border-b border-border/60">
-                        <td className="py-3">
-                          <p className="font-medium text-white">{row.employeeName}</p>
-                          <p className="text-xs text-zinc-500">{row.department || "—"}</p>
-                        </td>
-                        <td className="py-3 text-zinc-300">{formatDate(row.workDate)}</td>
-                        <td className="py-3 font-medium text-white">{formatDuration(row.totalMs)}</td>
-                        <td className="py-3">
-                          <p className="font-mono text-xs text-zinc-300">
-                            {new Date(row.latestPunchAt).toLocaleString()}
-                          </p>
-                          <p className="text-xs capitalize text-zinc-500">
-                            {formatPunchTypeLabel(row.latestPunchType)}
-                          </p>
-                        </td>
-                        <td className="py-3">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                              row.status === "working"
-                                ? "bg-emerald-500/15 text-emerald-200"
-                                : "bg-zinc-500/15 text-zinc-300"
-                            }`}
-                          >
-                            {row.status === "working" ? "Working" : "Away"}
-                          </span>
-                        </td>
+                <>
+                  <table className="w-full min-w-[760px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-xs uppercase text-zinc-500">
+                        <th className="pb-3 font-medium">User</th>
+                        <th className="pb-3 font-medium">Date</th>
+                        <th className="pb-3 font-medium">Total time</th>
+                        <th className="pb-3 font-medium">Latest punch</th>
+                        <th className="pb-3 font-medium">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const q = overviewQuery.trim().toLowerCase();
+                        const filtered = attendanceOverview.filter((row) => {
+                          if (overviewStatus !== "all" && row.status !== overviewStatus) return false;
+                          if (!q) return true;
+                          return (
+                            row.employeeName.toLowerCase().includes(q) ||
+                            (row.department || "").toLowerCase().includes(q) ||
+                            row.workDate.includes(q)
+                          );
+                        });
+                        const totalPages = Math.max(1, Math.ceil(filtered.length / overviewPageSize));
+                        const pageSafe = Math.min(Math.max(1, overviewPage), totalPages);
+                        const offset = (pageSafe - 1) * overviewPageSize;
+                        const paged = filtered.slice(offset, offset + overviewPageSize);
+                        return paged.map((row) => (
+                          <tr key={`${row.employeeName}-${row.workDate}`} className="border-b border-border/60">
+                            <td className="py-3">
+                              <p className="font-medium text-white">{row.employeeName}</p>
+                              <p className="text-xs text-zinc-500">{row.department || "—"}</p>
+                            </td>
+                            <td className="py-3 text-zinc-300">{formatDate(row.workDate)}</td>
+                            <td className="py-3 font-medium text-white">{formatDuration(row.totalMs)}</td>
+                            <td className="py-3">
+                              <p className="font-mono text-xs text-zinc-300">{new Date(row.latestPunchAt).toLocaleString()}</p>
+                              <p className="text-xs capitalize text-zinc-500">{formatPunchTypeLabel(row.latestPunchType)}</p>
+                            </td>
+                            <td className="py-3">
+                              <span
+                                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                                  row.status === "working" ? "bg-emerald-500/15 text-emerald-200" : "bg-zinc-500/15 text-zinc-300"
+                                }`}
+                              >
+                                {row.status === "working" ? "Working" : "Away"}
+                              </span>
+                            </td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                  <div className="mt-3">
+                    <ListPagination
+                      itemLabel="rows"
+                      totalItems={attendanceOverview.length}
+                      filteredItems={attendanceOverview.filter((row) => {
+                        const q = overviewQuery.trim().toLowerCase();
+                        if (overviewStatus !== "all" && row.status !== overviewStatus) return false;
+                        if (!q) return true;
+                        return (
+                          row.employeeName.toLowerCase().includes(q) || (row.department || "").toLowerCase().includes(q) || row.workDate.includes(q)
+                        );
+                      }).length}
+                      page={Math.min(Math.max(1, overviewPage), Math.max(1, Math.ceil(Math.max(1, attendanceOverview.length) / overviewPageSize)))}
+                      pageSize={overviewPageSize}
+                      totalPages={Math.max(1, Math.ceil(Math.max(1, attendanceOverview.length) / overviewPageSize))}
+                      onPageChange={setOverviewPage}
+                      onPageSizeChange={(next) => {
+                        setOverviewPageSize(next);
+                        setOverviewPage(1);
+                      }}
+                    />
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
