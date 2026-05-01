@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 import {
   createShiftAction,
   deleteShiftAction,
@@ -49,6 +50,15 @@ export function TimeWorkforceClient({
   const [shiftDeleteId, setShiftDeleteId] = useState<string | null>(null);
   const [shiftDeleteLoading, setShiftDeleteLoading] = useState(false);
   const [shiftDeleteError, setShiftDeleteError] = useState<string | null>(null);
+  const [shiftQuery, setShiftQuery] = useState("");
+  const [shiftPage, setShiftPage] = useState(1);
+  const [shiftPageSize, setShiftPageSize] = useState(10);
+  const [shiftTypeFilter, setShiftTypeFilter] = useState<"all" | string>("all");
+  const [shiftDateFilter, setShiftDateFilter] = useState<string>("");
+  const [attQuery, setAttQuery] = useState("");
+  const [attFilter, setAttFilter] = useState<"all" | string>("all");
+  const [attPage, setAttPage] = useState(1);
+  const [attPageSize, setAttPageSize] = useState(10);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -252,6 +262,48 @@ export function TimeWorkforceClient({
                 <CardDescription>Most recent first (up to 120 rows).</CardDescription>
               </CardHeader>
               <CardContent className="overflow-x-auto">
+                <div className="mb-3 flex flex-col gap-3 sm:flex-row">
+                  <Input
+                    placeholder="Search employee, type, or date…"
+                    value={shiftQuery}
+                    onChange={(e) => {
+                      setShiftQuery(e.target.value);
+                      setShiftPage(1);
+                    }}
+                    aria-label="Search shifts"
+                  />
+                  <select
+                    className="h-10 min-w-[11rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
+                    value={shiftTypeFilter}
+                    onChange={(e) => {
+                      setShiftTypeFilter((e.target.value as "all" | string) || "all");
+                      setShiftPage(1);
+                    }}
+                    aria-label="Filter shifts by type"
+                  >
+                    <option value="all">All types</option>
+                    {Array.from(new Set(shifts.map((s) => s.shift_type).filter(Boolean)))
+                      .map((t) => String(t))
+                      .map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                  </select>
+                  <label className="text-xs">
+                    <span className="sr-only">Filter by date</span>
+                    <Input
+                      type="date"
+                      value={shiftDateFilter}
+                      onChange={(e) => {
+                        setShiftDateFilter(e.target.value);
+                        setShiftPage(1);
+                      }}
+                      className="h-10"
+                      aria-label="Filter shifts by date"
+                    />
+                  </label>
+                </div>
                 {shifts.length === 0 ? (
                   <p className="text-sm text-zinc-500">No shifts yet.</p>
                 ) : (
@@ -267,31 +319,67 @@ export function TimeWorkforceClient({
                       </tr>
                     </thead>
                     <tbody>
-                      {shifts.map((r) => (
-                        <tr key={r.id} className="border-b border-border/60">
-                          <td className="py-3 text-white">{r.employee_label}</td>
-                          <td className="py-3">{r.shift_date}</td>
-                          <td className="py-3 font-mono text-xs">{r.start_time}</td>
-                          <td className="py-3 font-mono text-xs">{r.end_time}</td>
-                          <td className="py-3 text-zinc-400">{r.shift_type ?? "—"}</td>
-                          {canManage ? (
-                            <td className="py-3 text-right">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                className="text-xs text-red-400 hover:text-red-300"
-                                onClick={() => requestRemoveShift(r.id)}
-                              >
-                                Delete
-                              </Button>
-                            </td>
-                          ) : null}
-                        </tr>
-                      ))}
+                      {(() => {
+                        const q = shiftQuery.trim().toLowerCase();
+                        const filtered = shifts.filter((r) => {
+                          if (shiftTypeFilter !== "all" && (r.shift_type ?? "") !== shiftTypeFilter) return false;
+                          if (shiftDateFilter && r.shift_date !== shiftDateFilter) return false;
+                          if (!q) return true;
+                          const blob = [r.employee_label ?? "", r.shift_type ?? "", r.shift_date ?? ""].join(" ").toLowerCase();
+                          return blob.includes(q);
+                        });
+                        const totalPages = Math.max(1, Math.ceil(filtered.length / shiftPageSize));
+                        const pageSafe = Math.min(Math.max(1, shiftPage), totalPages);
+                        const offset = (pageSafe - 1) * shiftPageSize;
+                        const paged = filtered.slice(offset, offset + shiftPageSize);
+                        return paged.map((r) => (
+                          <tr key={r.id} className="border-b border-border/60">
+                            <td className="py-3 text-white">{r.employee_label}</td>
+                            <td className="py-3">{r.shift_date}</td>
+                            <td className="py-3 font-mono text-xs">{r.start_time}</td>
+                            <td className="py-3 font-mono text-xs">{r.end_time}</td>
+                            <td className="py-3 text-zinc-400">{r.shift_type ?? "—"}</td>
+                            {canManage ? (
+                              <td className="py-3 text-right">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  className="text-xs text-red-400 hover:text-red-300"
+                                  onClick={() => requestRemoveShift(r.id)}
+                                >
+                                  Delete
+                                </Button>
+                              </td>
+                            ) : null}
+                          </tr>
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 )}
               </CardContent>
+              {shifts.length > 0 ? (
+                <ListPagination
+                  itemLabel="shifts"
+                  totalItems={shifts.length}
+                  filteredItems={shifts.filter((r) => {
+                    if (shiftTypeFilter !== "all" && (r.shift_type ?? "") !== shiftTypeFilter) return false;
+                    if (shiftDateFilter && r.shift_date !== shiftDateFilter) return false;
+                    const q = shiftQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    const blob = [r.employee_label ?? "", r.shift_type ?? "", r.shift_date ?? ""].join(" ").toLowerCase();
+                    return blob.includes(q);
+                  }).length}
+                  page={Math.min(Math.max(1, shiftPage), Math.max(1, Math.ceil(shifts.length / shiftPageSize)))}
+                  pageSize={shiftPageSize}
+                  totalPages={Math.max(1, Math.ceil(shifts.length / shiftPageSize))}
+                  onPageChange={setShiftPage}
+                  onPageSizeChange={(next) => {
+                    setShiftPageSize(next);
+                    setShiftPage(1);
+                  }}
+                />
+              ) : null}
             </Card>
           )}
         </div>
@@ -357,6 +445,32 @@ export function TimeWorkforceClient({
                 <CardDescription>Latest 50 punches.</CardDescription>
               </CardHeader>
               <CardContent>
+                <div className="mb-3 flex flex-col gap-3 sm:flex-row">
+                  <Input
+                    placeholder="Search employee, type, or department…"
+                    value={attQuery}
+                    onChange={(e) => {
+                      setAttQuery(e.target.value);
+                      setAttPage(1);
+                    }}
+                    aria-label="Search attendance"
+                  />
+                  <select
+                    className="h-10 min-w-[11rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
+                    value={attFilter}
+                    onChange={(e) => {
+                      setAttFilter((e.target.value as "all" | string) || "all");
+                      setAttPage(1);
+                    }}
+                    aria-label="Filter attendance by type"
+                  >
+                    <option value="all">All types</option>
+                    <option value="in">In</option>
+                    <option value="out">Out</option>
+                    <option value="break_start">Break start</option>
+                    <option value="break_end">Break end</option>
+                  </select>
+                </div>
                 {attendance.length === 0 ? (
                   <p className="text-sm text-zinc-500">No punches recorded yet.</p>
                 ) : (
@@ -370,20 +484,52 @@ export function TimeWorkforceClient({
                       </tr>
                     </thead>
                     <tbody>
-                      {attendance.map((r) => (
-                        <tr key={r.id} className="border-b border-border/60">
-                          <td className="py-3 font-medium text-white">{r.employee_name}</td>
-                          <td className="py-3 capitalize text-zinc-400">{r.punch_type}</td>
-                          <td className="py-3 font-mono text-xs text-zinc-300">
-                            {new Date(r.punched_at).toLocaleString()}
-                          </td>
-                          <td className="py-3 text-zinc-400">{r.department}</td>
-                        </tr>
-                      ))}
+                      {(() => {
+                        const q = attQuery.trim().toLowerCase();
+                        const filtered = attendance.filter((r) => {
+                          if (attFilter !== "all" && r.punch_type !== attFilter) return false;
+                          if (!q) return true;
+                          const blob = [r.employee_name ?? "", r.punch_type ?? "", r.department ?? "", r.punched_at ?? ""].join(" ").toLowerCase();
+                          return blob.includes(q);
+                        });
+                        const totalPages = Math.max(1, Math.ceil(filtered.length / attPageSize));
+                        const pageSafe = Math.min(Math.max(1, attPage), totalPages);
+                        const offset = (pageSafe - 1) * attPageSize;
+                        const paged = filtered.slice(offset, offset + attPageSize);
+                        return paged.map((r) => (
+                          <tr key={r.id} className="border-b border-border/60">
+                            <td className="py-3 font-medium text-white">{r.employee_name}</td>
+                            <td className="py-3 capitalize text-zinc-400">{r.punch_type}</td>
+                            <td className="py-3 font-mono text-xs text-zinc-300">{new Date(r.punched_at).toLocaleString()}</td>
+                            <td className="py-3 text-zinc-400">{r.department}</td>
+                          </tr>
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 )}
               </CardContent>
+              {attendance.length > 0 ? (
+                <ListPagination
+                  itemLabel="punches"
+                  totalItems={attendance.length}
+                  filteredItems={attendance.filter((r) => {
+                    if (attFilter !== "all" && r.punch_type !== attFilter) return false;
+                    const q = attQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    const blob = [r.employee_name ?? "", r.punch_type ?? "", r.department ?? "", r.punched_at ?? ""].join(" ").toLowerCase();
+                    return blob.includes(q);
+                  }).length}
+                  page={Math.min(Math.max(1, attPage), Math.max(1, Math.ceil(attendance.length / attPageSize)))}
+                  pageSize={attPageSize}
+                  totalPages={Math.max(1, Math.ceil(attendance.length / attPageSize))}
+                  onPageChange={setAttPage}
+                  onPageSizeChange={(next) => {
+                    setAttPageSize(next);
+                    setAttPage(1);
+                  }}
+                />
+              ) : null}
             </Card>
           )}
         </div>
