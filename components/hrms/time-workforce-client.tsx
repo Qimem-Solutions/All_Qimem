@@ -7,6 +7,7 @@ import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { formatDate } from "@/lib/format";
 import {
   createShiftAction,
   deleteShiftAction,
@@ -32,6 +33,30 @@ type Props = {
   shiftError: string | null;
   attendanceError: string | null;
 };
+
+type AttendanceOverviewRow = {
+  employeeName: string;
+  department: string;
+  workDate: string;
+  totalMs: number;
+  latestPunchAt: string;
+  latestPunchType: string;
+  status: "working" | "away";
+};
+
+function formatDuration(totalMs: number) {
+  if (totalMs <= 0) return "0m";
+  const totalMinutes = Math.round(totalMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
+function formatPunchTypeLabel(value: string) {
+  return value.replaceAll("_", " ");
+}
 
 export function TimeWorkforceClient({
   tenantId,
@@ -59,8 +84,76 @@ export function TimeWorkforceClient({
   const [attFilter, setAttFilter] = useState<"all" | string>("all");
   const [attPage, setAttPage] = useState(1);
   const [attPageSize, setAttPageSize] = useState(10);
+  const [overviewGeneratedAt] = useState(() => Date.now());
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const attendanceOverview = useMemo<AttendanceOverviewRow[]>(() => {
+    const grouped = new Map<string, AttRow[]>();
+
+    for (const row of attendance) {
+      const workDate = row.punched_at.slice(0, 10);
+      const key = `${row.employee_name}::${workDate}`;
+      const bucket = grouped.get(key) ?? [];
+      bucket.push(row);
+      grouped.set(key, bucket);
+    }
+
+    return Array.from(grouped.values())
+      .map((rows) => {
+        const ordered = [...rows].sort(
+          (a, b) => new Date(a.punched_at).getTime() - new Date(b.punched_at).getTime(),
+        );
+        let activeStart: number | null = null;
+        let totalMs = 0;
+
+        for (const row of ordered) {
+          const stamp = new Date(row.punched_at).getTime();
+          if (Number.isNaN(stamp)) continue;
+
+          if (row.punch_type === "in") {
+            if (activeStart == null) activeStart = stamp;
+            continue;
+          }
+
+          if (row.punch_type === "break_start" || row.punch_type === "out") {
+            if (activeStart != null && stamp > activeStart) totalMs += stamp - activeStart;
+            activeStart = null;
+            continue;
+          }
+
+          if (row.punch_type === "break_end" && activeStart == null) {
+            activeStart = stamp;
+          }
+        }
+
+        if (activeStart != null) {
+          totalMs += Math.max(0, overviewGeneratedAt - activeStart);
+        }
+
+        const latest = ordered.at(-1);
+        if (!latest) return null;
+
+        return {
+          employeeName: latest.employee_name,
+          department: latest.department,
+          workDate: latest.punched_at.slice(0, 10),
+          totalMs,
+          latestPunchAt: latest.punched_at,
+          latestPunchType: latest.punch_type,
+          status: latest.punch_type === "in" || latest.punch_type === "break_end" ? "working" : "away",
+        };
+      })
+      .filter((row): row is AttendanceOverviewRow => row != null)
+      .sort((a, b) => new Date(b.latestPunchAt).getTime() - new Date(a.latestPunchAt).getTime());
+  }, [attendance, overviewGeneratedAt]);
+  const totalWorkedMs = useMemo(
+    () => attendanceOverview.reduce((sum, row) => sum + row.totalMs, 0),
+    [attendanceOverview],
+  );
+  const uniqueEmployeesInLog = useMemo(
+    () => new Set(attendance.map((row) => row.employee_name)).size,
+    [attendance],
+  );
 
   async function onShiftSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -168,30 +261,95 @@ export function TimeWorkforceClient({
       ) : null}
 
       {tab === "overview" && (
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-zinc-400">Punches today (UTC)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold text-white">{punchToday}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-zinc-400">Team members in log</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold text-white">{uniqueEmployeesInLog}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-zinc-400">Total tracked time</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold text-white">{formatDuration(totalWorkedMs)}</p>
+                <p className="mt-1 text-xs text-zinc-500">Calculated from the latest 50 punches</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-zinc-400">Shifts listed</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold text-white">{shifts.length}</p>
+              </CardContent>
+            </Card>
+          </div>
+
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-zinc-400">Punches today (UTC)</CardTitle>
+            <CardHeader>
+              <CardTitle className="text-base">Attendance overview</CardTitle>
+              <CardDescription>User, work date, and total tracked time from recent punches.</CardDescription>
             </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-semibold text-white">{punchToday}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-zinc-400">Shifts listed</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-semibold text-white">{shifts.length}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-zinc-400">Attendance rows</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-semibold text-white">{attendance.length}</p>
-              <p className="mt-1 text-xs text-zinc-500">Latest 50 in log</p>
+            <CardContent className="overflow-x-auto">
+              {attendanceOverview.length === 0 ? (
+                <p className="text-sm text-zinc-500">No attendance activity to summarize yet.</p>
+              ) : (
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-xs uppercase text-zinc-500">
+                      <th className="pb-3 font-medium">User</th>
+                      <th className="pb-3 font-medium">Date</th>
+                      <th className="pb-3 font-medium">Total time</th>
+                      <th className="pb-3 font-medium">Latest punch</th>
+                      <th className="pb-3 font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendanceOverview.map((row) => (
+                      <tr key={`${row.employeeName}-${row.workDate}`} className="border-b border-border/60">
+                        <td className="py-3">
+                          <p className="font-medium text-white">{row.employeeName}</p>
+                          <p className="text-xs text-zinc-500">{row.department || "—"}</p>
+                        </td>
+                        <td className="py-3 text-zinc-300">{formatDate(row.workDate)}</td>
+                        <td className="py-3 font-medium text-white">{formatDuration(row.totalMs)}</td>
+                        <td className="py-3">
+                          <p className="font-mono text-xs text-zinc-300">
+                            {new Date(row.latestPunchAt).toLocaleString()}
+                          </p>
+                          <p className="text-xs capitalize text-zinc-500">
+                            {formatPunchTypeLabel(row.latestPunchType)}
+                          </p>
+                        </td>
+                        <td className="py-3">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                              row.status === "working"
+                                ? "bg-emerald-500/15 text-emerald-200"
+                                : "bg-zinc-500/15 text-zinc-300"
+                            }`}
+                          >
+                            {row.status === "working" ? "Working" : "Away"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </CardContent>
           </Card>
         </div>
