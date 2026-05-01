@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BedDouble,
   CheckCircle2,
@@ -43,17 +43,20 @@ const HK_OPTIONS = [
   { value: "dirty", label: "Dirty" },
 ] as const;
 const OP_OPTIONS = [
-  { value: "available", label: "Available" },
-  { value: "occupied", label: "Occupied" },
+  { value: "", label: "Normal" },
   { value: "out_of_order", label: "Out of order" },
   { value: "maintenance", label: "Maintenance" },
   { value: "inactive", label: "Inactive" },
 ] as const;
 
 function operationalOnlyLabel(op: string | null) {
-  const o = (op ?? "available").toLowerCase();
+  const o = (op ?? "").toLowerCase();
   const hit = OP_OPTIONS.find((x) => x.value === o);
-  return hit?.label ?? op ?? "—";
+  return hit?.label ?? op ?? "Normal";
+}
+
+function occupancyLabel(status: "available" | "occupied") {
+  return status === "occupied" ? "Occupied" : "Available";
 }
 
 function hkValueForSelect(hk: string | null) {
@@ -202,10 +205,9 @@ function statusDotClass(hk: string | null, op: string | null) {
   const o = (op ?? "").toLowerCase();
   if (o === "out_of_order" || o === "maintenance") return "bg-red-500";
   if (o === "inactive") return "bg-zinc-500";
-  if (o === "occupied") return "bg-amber-500";
   const h = (hk ?? "clean").toLowerCase();
   if (h === "dirty") return "bg-gold";
-  return "bg-emerald-500";
+  return "bg-sky-500";
 }
 
 type TabId = "rooms" | "types";
@@ -215,13 +217,19 @@ export function HrrmInventoryPageClient({
   initialRoomTypes,
   loadError,
   canManage,
+  occupancyDate,
+  todayIso,
 }: {
   initialRooms: RoomInventoryRow[];
   initialRoomTypes: RoomTypeRow[];
   loadError: string | null;
   canManage: boolean;
+  occupancyDate: string;
+  todayIso: string;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<TabId>("rooms");
   const [rooms, setRooms] = useState(initialRooms);
   const [roomTypes, setRoomTypes] = useState(initialRoomTypes);
@@ -231,6 +239,17 @@ export function HrrmInventoryPageClient({
   const [buildingQ, setBuildingQ] = useState("all");
   const [roomPage, setRoomPage] = useState(1);
   const [roomPageSize, setRoomPageSize] = useState(12);
+  const showCleanliness = occupancyDate === todayIso;
+
+  const setOccupancyDate = useCallback(
+    (nextDate: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (nextDate) params.set("date", nextDate);
+      else params.delete("date");
+      router.push(`${pathname}?${params.toString()}`);
+    },
+    [pathname, router, searchParams],
+  );
 
   useEffect(() => {
     setRooms(initialRooms);
@@ -261,7 +280,15 @@ export function HrrmInventoryPageClient({
       if (buildingQ !== "all" && (r.building?.trim() || "") !== buildingQ) return false;
       if (floorQ && (r.floor?.trim() || "") !== floorQ) return false;
       if (!q) return true;
-      const blob = [r.room_number, r.floor, r.building, r.room_type_name, r.operational_status, r.housekeeping_status]
+      const blob = [
+        r.room_number,
+        r.floor,
+        r.building,
+        r.room_type_name,
+        r.operational_status,
+        r.housekeeping_status,
+        r.current_occupancy_status,
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -285,12 +312,14 @@ export function HrrmInventoryPageClient({
     if (isInactiveRoom(r.operational_status)) {
       continue;
     }
-    const h = (r.housekeeping_status ?? "unknown").toLowerCase();
-    hkCounts[h] = (hkCounts[h] ?? 0) + 1;
+    if (showCleanliness) {
+      const h = (r.housekeeping_status ?? "unknown").toLowerCase();
+      hkCounts[h] = (hkCounts[h] ?? 0) + 1;
+    }
     const o = (r.operational_status ?? "").toLowerCase();
-    if (o === "available") available += 1;
+    if (r.current_occupancy_status === "available") available += 1;
     if (o === "out_of_order" || o === "maintenance") ooo += 1;
-    if (o === "occupied") occ += 1;
+    if (r.current_occupancy_status === "occupied") occ += 1;
   }
 
   const exportCsv = useCallback(() => {
@@ -336,6 +365,15 @@ export function HrrmInventoryPageClient({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col">
+            <label className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted">Occupancy date</label>
+            <Input
+              className="mt-1 min-w-[10rem]"
+              type="date"
+              value={occupancyDate}
+              onChange={(e) => setOccupancyDate(e.target.value)}
+            />
+          </div>
           <div className="flex rounded-lg border border-border p-0.5">
             <button
               type="button"
@@ -462,6 +500,7 @@ export function HrrmInventoryPageClient({
             canManage={canManage}
             onRefresh={() => router.refresh()}
             statusDotClass={statusDotClass}
+            showCleanliness={showCleanliness}
             hkCounts={hkCounts}
             available={available}
             ooo={ooo}
@@ -767,6 +806,7 @@ function RoomsPanel({
   canManage,
   onRefresh,
   statusDotClass,
+  showCleanliness,
   hkCounts,
   available,
   ooo,
@@ -781,6 +821,7 @@ function RoomsPanel({
   canManage: boolean;
   onRefresh: () => void;
   statusDotClass: (h: string | null, o: string | null) => string;
+  showCleanliness: boolean;
   hkCounts: Record<string, number>;
   available: number;
   ooo: number;
@@ -799,7 +840,9 @@ function RoomsPanel({
             <h2 className="mt-1 text-lg font-semibold text-foreground [font-family:var(--font-outfit),system-ui,sans-serif]">
               Operational overview
             </h2>
-            <p className="mt-1 text-sm text-muted">Housekeeping and occupancy across rooms (respects filters above).</p>
+            <p className="mt-1 text-sm text-muted">
+              Occupancy follows the selected date; cleanliness is only shown for the current day.
+            </p>
           </div>
           <div className="rounded-full border border-border bg-muted/30 px-3 py-1.5 text-sm text-muted">
             {visibleCountLabel}
@@ -814,20 +857,32 @@ function RoomsPanel({
             dotClassName="bg-emerald-500"
             icon={<CheckCircle2 className="h-5 w-5" />}
           />
-          <RoomStatusStat
-            label="Clean"
-            value={hkCounts.clean ?? 0}
-            helper="Housekeeping complete"
-            dotClassName="bg-emerald-600 dark:bg-emerald-400"
-            icon={<Sparkles className="h-5 w-5" />}
-          />
-          <RoomStatusStat
-            label="Dirty"
-            value={hkCounts.dirty ?? 0}
-            helper="Needs housekeeping"
-            dotClassName="bg-gold"
-            icon={<CircleAlert className="h-5 w-5" />}
-          />
+          {showCleanliness ? (
+            <>
+              <RoomStatusStat
+                label="Clean"
+                value={hkCounts.clean ?? 0}
+                helper="Housekeeping complete"
+                dotClassName="bg-sky-500 dark:bg-sky-400"
+                icon={<Sparkles className="h-5 w-5" />}
+              />
+              <RoomStatusStat
+                label="Dirty"
+                value={hkCounts.dirty ?? 0}
+                helper="Needs housekeeping"
+                dotClassName="bg-gold"
+                icon={<CircleAlert className="h-5 w-5" />}
+              />
+            </>
+          ) : (
+            <RoomStatusStat
+              label="Cleanliness"
+              value={0}
+              helper="Only shown for today's snapshot"
+              dotClassName="bg-sky-500 dark:bg-sky-400"
+              icon={<Sparkles className="h-5 w-5" />}
+            />
+          )}
           <RoomStatusStat
             label="Occupied"
             value={occ}
@@ -854,6 +909,7 @@ function RoomsPanel({
               canManage={canManage}
               onEdit={() => setModal({ edit: r })}
               onRefresh={onRefresh}
+              showCleanliness={showCleanliness}
             />
           ))}
           {canManage ? (
@@ -884,6 +940,7 @@ function RoomsPanel({
                 <th className="px-4 py-3 font-medium">Type</th>
                 <th className="px-4 py-3 font-medium">Floor / building</th>
                 <th className="px-4 py-3 font-medium">Housekeeping</th>
+                <th className="px-4 py-3 font-medium">Occupancy</th>
                 <th className="px-4 py-3 font-medium">Operational</th>
                 <th className="w-20 px-4 py-3 text-right font-medium"> </th>
               </tr>
@@ -897,14 +954,26 @@ function RoomsPanel({
                     {r.floor ?? "—"} · {r.building ?? "—"}
                   </td>
                   <td className="px-4 py-3 align-middle">
-                    <HousekeepingSelect
-                      roomId={r.id}
-                      value={r.housekeeping_status}
-                      operationalStatus={r.operational_status}
-                      canManage={canManage}
-                      onUpdated={onRefresh}
-                      compact
-                    />
+                    {showCleanliness ? (
+                      <HousekeepingSelect
+                        roomId={r.id}
+                        value={r.housekeeping_status}
+                        operationalStatus={r.operational_status}
+                        canManage={canManage}
+                        onUpdated={onRefresh}
+                        compact
+                      />
+                    ) : (
+                      <span className="text-muted">Today only</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center gap-2 text-muted">
+                      <span
+                        className={cn("h-2 w-2 shrink-0 rounded-full", r.current_occupancy_status === "occupied" ? "bg-amber-500" : "bg-emerald-500")}
+                      />
+                      {occupancyLabel(r.current_occupancy_status)}
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center gap-2 text-muted">
@@ -953,11 +1022,13 @@ function RoomCard({
   canManage,
   onEdit,
   onRefresh,
+  showCleanliness,
 }: {
   room: RoomInventoryRow;
   canManage: boolean;
   onEdit: () => void;
   onRefresh: () => void;
+  showCleanliness: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>();
@@ -993,7 +1064,7 @@ function RoomCard({
     setRoomActionErr(null);
     const res = await setRoomOperationalStatusAction({
       id: r.id,
-      operationalStatus: roomIsInactive ? "available" : "inactive",
+      operationalStatus: roomIsInactive ? "" : "inactive",
     });
     setRoomActionLoading(false);
     if (!res.ok) {
@@ -1082,7 +1153,7 @@ function RoomCard({
         className={cn(
           "absolute top-3 h-2.5 w-2.5 rounded-full",
           canManage ? "right-12" : "right-3",
-          statusDotClass(r.housekeeping_status, r.operational_status),
+          r.current_occupancy_status === "occupied" ? "bg-amber-500" : "bg-emerald-500",
         )}
       />
       <CardHeader className="pb-2 pr-10">
@@ -1095,14 +1166,25 @@ function RoomCard({
         <div className="rounded border border-border px-2 py-1 text-center text-xs text-foreground/90">
           {r.room_type_name ?? "Unassigned type"}
         </div>
-        <HousekeepingSelect
-          roomId={r.id}
-          value={r.housekeeping_status}
-          operationalStatus={r.operational_status}
-          canManage={canManage}
-          onUpdated={onRefresh}
-        />
+        {showCleanliness ? (
+          <HousekeepingSelect
+            roomId={r.id}
+            value={r.housekeeping_status}
+            operationalStatus={r.operational_status}
+            canManage={canManage}
+            onUpdated={onRefresh}
+          />
+        ) : (
+          <p className="mt-3 text-[10px] text-muted">
+            <span className="font-semibold uppercase tracking-wider">Housekeeping</span>{" "}
+            <span className="font-normal normal-case">Only shown for today</span>
+          </p>
+        )}
         <p className="mt-2 text-[10px] text-muted">
+          <span className="font-semibold uppercase tracking-wider">Occupancy</span>{" "}
+          <span className="font-normal normal-case">{occupancyLabel(r.current_occupancy_status)}</span>
+        </p>
+        <p className="mt-1 text-[10px] text-muted">
           <span className="font-semibold uppercase tracking-wider">Operational</span>{" "}
           <span className="font-normal normal-case">{operationalOnlyLabel(r.operational_status)}</span>
         </p>
@@ -1157,7 +1239,7 @@ function RoomFormModal({
   const [floor, setFloor] = useState(room?.floor ?? "");
   const [building, setBuilding] = useState(room?.building ?? "");
   const [hk, setHk] = useState((room?.housekeeping_status as string) ?? "clean");
-  const [op, setOp] = useState((room?.operational_status as string) ?? "available");
+  const [op, setOp] = useState((room?.operational_status as string) ?? "");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const inactive = isInactiveRoom(op);

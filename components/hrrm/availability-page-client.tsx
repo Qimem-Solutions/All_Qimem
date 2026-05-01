@@ -6,21 +6,24 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
-import { formatBirrCents } from "@/lib/format";
+import { formatBirrCents, formatDate } from "@/lib/format";
 import type { AvailabilityMatrix, AvailabilityRow } from "@/lib/queries/hrrm-availability";
 import { addDaysToIso, nightsBetween } from "@/lib/hrrm-pricing";
 import { searchGuestsHrrmAction, createQuickReservationAction } from "@/lib/actions/hrrm-availability";
 import { cn } from "@/lib/utils";
 import {
-  CalendarRange,
   ChevronLeft,
   ChevronRight,
+  CircleDot,
   Filter,
+  Hotel,
+  X,
   Search,
   TrendingUp,
 } from "lucide-react";
 
 type GuestPick = { id: string; full_name: string; phone: string | null };
+type RoomDetailFilter = "all" | "available" | "occupied";
 
 function infoLabelClass() {
   return "text-[11px] font-medium uppercase tracking-[0.14em] text-muted";
@@ -84,6 +87,9 @@ export function AvailabilityPageClient({
 
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [selectedNight, setSelectedNight] = useState<string | null>(null);
+  const [roomDetailOpen, setRoomDetailOpen] = useState(false);
+  const [roomDetailQuery, setRoomDetailQuery] = useState("");
+  const [roomDetailFilter, setRoomDetailFilter] = useState<RoomDetailFilter>("all");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -153,7 +159,26 @@ export function AvailabilityPageClient({
     setSelectedNight(date);
     setCheckIn(date);
     setCheckOut(addDaysToIso(date, 3));
+    setRoomDetailQuery("");
+    setRoomDetailFilter("all");
+    setRoomDetailOpen(true);
   }
+
+  const selectedCell = useMemo(
+    () => selectedRow?.cells.find((cell) => cell.date === selectedNight) ?? null,
+    [selectedNight, selectedRow],
+  );
+
+  const roomDetailRows = useMemo(() => {
+    const q = roomDetailQuery.trim().toLowerCase();
+    const rooms = selectedCell?.rooms ?? [];
+    return rooms.filter((room) => {
+      if (roomDetailFilter === "available" && room.occupied) return false;
+      if (roomDetailFilter === "occupied" && !room.occupied) return false;
+      if (q && !room.roomNumber.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [roomDetailFilter, roomDetailQuery, selectedCell]);
 
   async function onSubmit(mode: "hold" | "confirm") {
     setFormError(null);
@@ -468,6 +493,100 @@ export function AvailabilityPageClient({
           )}
         </CardContent>
       </Card>
+
+      {roomDetailOpen && selectedRow && selectedCell ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <div className="max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-gold">
+                  <Hotel className="h-3.5 w-3.5" />
+                  Room detail
+                </div>
+                <h2 className="mt-3 text-xl font-semibold text-foreground">{selectedRow.roomTypeName}</h2>
+                <p className="mt-1 text-sm text-muted">
+                  {formatDate(selectedCell.date)} · {selectedCell.available} available / {selectedCell.physical} total rooms
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-9 w-9 p-0"
+                aria-label="Close room detail"
+                onClick={() => setRoomDetailOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="border-b border-border px-6 py-4">
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                  <Input
+                    className="pl-10"
+                    placeholder="Search room number"
+                    value={roomDetailQuery}
+                    onChange={(e) => setRoomDetailQuery(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(["all", "available", "occupied"] as const).map((filter) => (
+                    <Button
+                      key={filter}
+                      type="button"
+                      variant={roomDetailFilter === filter ? "primary" : "secondary"}
+                      className="capitalize"
+                      onClick={() => setRoomDetailFilter(filter)}
+                    >
+                      {filter}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 overflow-y-auto p-6 md:grid-cols-2">
+              {roomDetailRows.length === 0 ? (
+                <div className="md:col-span-2 rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted">
+                  No rooms match the current filter.
+                </div>
+              ) : (
+                roomDetailRows.map((room) => (
+                  <div
+                    key={room.id}
+                    className={cn(
+                      "rounded-xl border px-4 py-4",
+                      room.occupied ? "border-red-500/20 bg-red-500/5" : "border-emerald-500/20 bg-emerald-500/5",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-base font-semibold text-foreground">{room.roomNumber}</p>
+                        <p className="mt-1 text-xs text-muted">
+                          {room.occupied ? `Blocked by ${room.reservationStatus?.replaceAll("_", " ") ?? "reservation"}` : "Free for this night"}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                          room.occupied
+                            ? "border-red-500/30 bg-red-500/10 text-red-800 dark:text-red-200"
+                            : "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100",
+                        )}
+                      >
+                        <CircleDot className="h-3 w-3" />
+                        {room.occupied ? "Occupied" : "Available"}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

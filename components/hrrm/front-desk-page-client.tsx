@@ -154,6 +154,37 @@ export function FrontDeskPageClient({
     };
   }, [q, selectedQueryLocked]);
 
+  const reloadAvailableRooms = useCallback(
+    async (nextCheckIn: string, nextCheckOut: string) => {
+      if (!canManage) {
+        setRoomsErr(null);
+        setRoomsLoading(false);
+        return;
+      }
+
+      const validRange = Boolean(nextCheckIn && nextCheckOut && nextCheckIn < nextCheckOut);
+      if (!validRange) {
+        setRoomOptions([]);
+        setRoomsErr(nextCheckIn && nextCheckOut ? "Check-out must be after check-in." : null);
+        setRoomsLoading(false);
+        return;
+      }
+
+      setRoomsLoading(true);
+      setRoomsErr(null);
+
+      const result = await getFrontDeskAvailableRoomsAction(nextCheckIn, nextCheckOut);
+      setRoomsLoading(false);
+      if (!result.ok) {
+        setRoomOptions([]);
+        setRoomsErr(result.error);
+        return;
+      }
+      setRoomOptions(result.rows);
+    },
+    [canManage],
+  );
+
   useEffect(() => {
     if (!canManage) {
       setRoomsErr(null);
@@ -169,26 +200,8 @@ export function FrontDeskPageClient({
       return;
     }
 
-    let active = true;
-    setRoomsLoading(true);
-    setRoomsErr(null);
-
-    void (async () => {
-      const result = await getFrontDeskAvailableRoomsAction(checkIn, checkOut);
-      if (!active) return;
-      setRoomsLoading(false);
-      if (!result.ok) {
-        setRoomOptions([]);
-        setRoomsErr(result.error);
-        return;
-      }
-      setRoomOptions(result.rows);
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [canManage, checkIn, checkOut]);
+    void reloadAvailableRooms(checkIn, checkOut);
+  }, [canManage, checkIn, checkOut, reloadAvailableRooms]);
 
   useEffect(() => {
     if (!roomId) {
@@ -203,6 +216,15 @@ export function FrontDeskPageClient({
 
   const selectedRoom = roomOptions.find((room) => room.id === roomId) ?? null;
   const stayNights = checkIn && checkOut ? nightsBetween(checkIn, checkOut) : 0;
+  const hasStayRange = Boolean(checkIn && checkOut);
+  const hasValidStayRange = hasStayRange && checkIn < checkOut;
+  const roomSelectDisabled =
+    !canManage || !hasValidStayRange || roomsLoading || Boolean(roomsErr) || roomOptions.length === 0;
+  let roomSelectLabel = "— No room (profile only) —";
+  if (!hasStayRange) roomSelectLabel = "— Select check-in and check-out first —";
+  else if (!hasValidStayRange) roomSelectLabel = "— Check-out must be after check-in —";
+  else if (roomsLoading) roomSelectLabel = "— Checking available rooms… —";
+  else if (roomOptions.length === 0) roomSelectLabel = "— No rooms available for this range —";
 
   useEffect(() => {
     if (!selectedRoom) return;
@@ -259,8 +281,6 @@ export function FrontDeskPageClient({
       setRegName("");
       setPhone("");
       setExistingGuestId(null);
-      setCheckIn(defaultCheckIn);
-      setCheckOut(defaultCheckOut);
       setRoomId("");
       setAge("");
       setParty("1");
@@ -269,7 +289,9 @@ export function FrontDeskPageClient({
       setReservationStatus("pending");
       setPaymentStatus("pending");
       setIdFile(null);
+      setRoomOptions([]);
       setFormErr(null);
+      await reloadAvailableRooms(checkIn, checkOut);
       router.refresh();
     },
     [
@@ -277,8 +299,6 @@ export function FrontDeskPageClient({
       canManage,
       checkIn,
       checkOut,
-      defaultCheckIn,
-      defaultCheckOut,
       existingGuestId,
       idFile,
       nationalId,
@@ -289,6 +309,7 @@ export function FrontDeskPageClient({
       paymentDollars,
       phone,
       regName,
+      reloadAvailableRooms,
       roomId,
       router,
     ],
@@ -364,38 +385,9 @@ export function FrontDeskPageClient({
               <div className="rounded-md border border-border/60 bg-foreground/[0.02] p-3">
                 <p className="text-xs font-medium text-zinc-400">Stay (optional)</p>
                 <p className="mt-0.5 text-[11px] text-zinc-600">
-                  Pick a room and dates to create a reservation; leave all empty for profile-only.
+                  Choose the stay dates first, then assign a room that is free for that exact check-in to check-out range.
                 </p>
                 <div className="mt-2 space-y-2">
-                  <div>
-                    <span className="text-xs text-zinc-400">Room</span>
-                    <select
-                      className="mt-1 flex h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
-                      value={roomId}
-                      onChange={(e) => setRoomId(e.target.value)}
-                      disabled={!canManage || roomOptions.length === 0 || roomsLoading || Boolean(roomsErr)}
-                    >
-                      <option value="">— No room (profile only) —</option>
-                      {roomOptions.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {roomOptionLabel(r)}
-                        </option>
-                      ))}
-                    </select>
-                    {roomsErr ? <p className="mt-1 text-xs text-red-400">{roomsErr}</p> : null}
-                    {!roomsErr && roomsLoading ? <p className="mt-1 text-xs text-zinc-500">Checking room availability…</p> : null}
-                    {!roomsErr && !roomsLoading && checkIn < checkOut ? (
-                      <p className="mt-1 text-xs text-zinc-500">
-                        {roomOptions.length} room{roomOptions.length === 1 ? "" : "s"} available for {stayNights} night
-                        {stayNights === 1 ? "" : "s"}.
-                      </p>
-                    ) : null}
-                    {selectedRoom ? (
-                      <div className="mt-2 rounded-md border border-border/60 bg-surface/60 px-3 py-2 text-xs text-zinc-400">
-                        <span className="text-zinc-300">Selected room price:</span> {formatBirrCents(selectedRoom.nightlyCents)} per night
-                      </div>
-                    ) : null}
-                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <span className="text-xs text-zinc-400">Check-in</span>
@@ -417,6 +409,38 @@ export function FrontDeskPageClient({
                         disabled={!canManage}
                       />
                     </div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-zinc-400">Available room for selected dates</span>
+                    <select
+                      className="mt-1 flex h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
+                      value={roomId}
+                      onChange={(e) => setRoomId(e.target.value)}
+                      disabled={roomSelectDisabled}
+                    >
+                      <option value="">{roomSelectLabel}</option>
+                      {roomOptions.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {roomOptionLabel(r)}
+                        </option>
+                      ))}
+                    </select>
+                    {roomsErr ? <p className="mt-1 text-xs text-red-400">{roomsErr}</p> : null}
+                    {!roomsErr && roomsLoading ? <p className="mt-1 text-xs text-zinc-500">Checking room availability…</p> : null}
+                    {!roomsErr && !roomsLoading && hasValidStayRange ? (
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {roomOptions.length} room{roomOptions.length === 1 ? "" : "s"} available from {formatDate(checkIn)} to{" "}
+                        {formatDate(checkOut)} for {stayNights} night{stayNights === 1 ? "" : "s"}.
+                      </p>
+                    ) : null}
+                    {!roomsErr && !roomsLoading && !hasStayRange ? (
+                      <p className="mt-1 text-xs text-zinc-500">Enter both dates to load rooms for that range.</p>
+                    ) : null}
+                    {selectedRoom ? (
+                      <div className="mt-2 rounded-md border border-border/60 bg-surface/60 px-3 py-2 text-xs text-zinc-400">
+                        <span className="text-zinc-300">Selected room price:</span> {formatBirrCents(selectedRoom.nightlyCents)} per night
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>

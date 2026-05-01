@@ -137,8 +137,6 @@ export async function deleteRoomTypeAction(id: string): Promise<Ok> {
 
 const HK = ["clean", "dirty"] as const;
 const OP = [
-  "available",
-  "occupied",
   "out_of_order",
   "maintenance",
   "inactive",
@@ -150,7 +148,7 @@ function normalizeHk(s: string) {
 }
 function normalizeOp(s: string) {
   const x = s.trim().toLowerCase();
-  return (OP as readonly string[]).includes(x) ? x : "available";
+  return (OP as readonly string[]).includes(x) ? x : null;
 }
 
 export async function createRoomAction(input: {
@@ -292,7 +290,7 @@ export async function setRoomHousekeepingStatusAction(input: { id: string; house
 
 async function updateRoomFieldPartial(input: {
   id: string;
-  patch: { operational_status?: string; housekeeping_status?: string };
+  patch: { operational_status?: string | null; housekeeping_status?: string | null };
 }): Promise<Ok> {
   const g = await requireHrrmManage();
   if (!g.ok) return g;

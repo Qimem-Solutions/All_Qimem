@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { Download, Search } from "lucide-react";
 import { formatBirrCents, formatDate, formatRelative } from "@/lib/format";
 import type { ReservationLedgerRow } from "@/lib/queries/tenant-data";
 import { cn } from "@/lib/utils";
+import { updateReservationLedgerAction } from "@/lib/actions/hrrm-reservations";
 
 type FilterTab = "all" | "active" | "arrivals" | "departures" | "canceled";
 
@@ -127,12 +129,15 @@ export function ReservationsLedgerClient({
   loadError,
   stats,
   todayIso,
+  canManage,
 }: {
   rows: ReservationLedgerRow[];
   loadError: string | null;
   stats: { checkInsToday: number; departuresToday: number; activeBookings: number; error: string | null };
   todayIso: string;
+  canManage: boolean;
 }) {
+  const router = useRouter();
   const [tab, setTab] = useState<FilterTab>("all");
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -513,6 +518,9 @@ export function ReservationsLedgerClient({
                     {formatPaymentStatusLabel(selected.payment_status)}
                   </Badge>
                 </div>
+                {canManage ? (
+                  <ReservationEditor key={selected.id} reservation={selected} onSaved={() => router.refresh()} />
+                ) : null}
                 <div>
                   <p className="text-[10px] font-semibold uppercase text-zinc-500">Reference</p>
                   <p className="font-mono text-xs text-zinc-400 break-all">
@@ -537,5 +545,88 @@ export function ReservationsLedgerClient({
         </Card>
       </div>
     </div>
+  );
+}
+
+function ReservationEditor({
+  reservation,
+  onSaved,
+}: {
+  reservation: ReservationLedgerRow;
+  onSaved: () => void;
+}) {
+  const [editCheckIn, setEditCheckIn] = useState(reservation.check_in);
+  const [editCheckOut, setEditCheckOut] = useState(reservation.check_out);
+  const [editStatus, setEditStatus] = useState(reservation.status);
+  const [editPaymentStatus, setEditPaymentStatus] = useState(reservation.payment_status ?? "pending");
+  const [editErr, setEditErr] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+
+  return (
+    <form
+      className="space-y-3 rounded-lg border border-border/60 bg-foreground/5 p-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setEditErr(null);
+        setEditSaving(true);
+        const result = await updateReservationLedgerAction({
+          reservationId: reservation.id,
+          checkIn: editCheckIn,
+          checkOut: editCheckOut,
+          status: editStatus,
+          paymentStatus: editPaymentStatus,
+        });
+        setEditSaving(false);
+        if (!result.ok) {
+          setEditErr(result.error);
+          return;
+        }
+        onSaved();
+      }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Edit reservation</p>
+        <Button type="submit" size="sm" disabled={editSaving}>
+          {editSaving ? "Saving…" : "Save"}
+        </Button>
+      </div>
+      {editErr ? <p className="text-xs text-red-400">{editErr}</p> : null}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Check in</label>
+          <Input className="mt-1" type="date" value={editCheckIn} onChange={(e) => setEditCheckIn(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Check out</label>
+          <Input className="mt-1" type="date" value={editCheckOut} onChange={(e) => setEditCheckOut(e.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Status</label>
+          <select
+            className="mt-1 flex h-10 w-full rounded-md border border-border bg-surface px-3 text-sm"
+            value={editStatus}
+            onChange={(e) => setEditStatus(e.target.value)}
+          >
+            <option value="pending">Pending</option>
+            <option value="checked_in">Checked in</option>
+            <option value="checked_out">Checked out</option>
+            <option value="canceled">Canceled</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Payment</label>
+          <select
+            className="mt-1 flex h-10 w-full rounded-md border border-border bg-surface px-3 text-sm"
+            value={editPaymentStatus}
+            onChange={(e) => setEditPaymentStatus(e.target.value)}
+          >
+            <option value="pending">Pending</option>
+            <option value="paid">Paid</option>
+          </select>
+        </div>
+      </div>
+    </form>
   );
 }
