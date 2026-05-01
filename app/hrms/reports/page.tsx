@@ -199,31 +199,7 @@ export default async function HrReportsPage() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Department skyline</CardTitle>
-          <CardDescription>
-            Visual comparison of team size by department (relative to the largest department).
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {depts.length === 0 ? (
-            <p className="text-sm text-zinc-500">No departments to chart.</p>
-          ) : (
-            <div className="flex h-40 items-end justify-between gap-1">
-              {depts.map((d) => (
-                <div key={d.id} className="flex flex-1 flex-col items-center gap-1">
-                  <div
-                    className="w-full rounded-t bg-gold/50"
-                    style={{ height: `${Math.max(8, (d.employee_count / max) * 120)}px` }}
-                  />
-                  <span className="text-center text-[10px] text-zinc-600">{d.name.slice(0, 3)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Department skyline removed per request */}
     </div>
   );
 }

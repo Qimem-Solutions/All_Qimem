@@ -1,10 +1,15 @@
 import { redirect } from "next/navigation";
+import { localDateIso } from "@/lib/format";
 import { getUserContext } from "@/lib/queries/context";
 import { getServiceAccessForLayout } from "@/lib/auth/service-access";
 import { fetchRoomTypes, fetchRoomsInventory } from "@/lib/queries/hrrm-inventory";
 import { HrrmInventoryPageClient } from "@/components/hrrm/inventory-page-client";
 
-export default async function InventoryPage() {
+export default async function InventoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>;
+}) {
   const ctx = await getUserContext();
   if (!ctx) redirect("/login");
   const tenantId = ctx.tenantId;
@@ -21,9 +26,14 @@ export default async function InventoryPage() {
     );
   }
 
+  const sp = await searchParams;
+  const occupancyDate =
+    typeof sp.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) ? sp.date : localDateIso();
+  const todayIso = localDateIso();
+
   const [access, roomBlock, typeBlock] = await Promise.all([
     getServiceAccessForLayout(ctx, "hrrm"),
-    fetchRoomsInventory(tenantId),
+    fetchRoomsInventory(tenantId, occupancyDate),
     fetchRoomTypes(tenantId),
   ]);
   const canManage = access === "manage";
@@ -35,6 +45,8 @@ export default async function InventoryPage() {
       initialRoomTypes={typeBlock.rows}
       loadError={loadError}
       canManage={canManage}
+      occupancyDate={occupancyDate}
+      todayIso={todayIso}
     />
   );
 }

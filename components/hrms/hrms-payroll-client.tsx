@@ -14,6 +14,7 @@ import {
 import type { PayrollRunRow, PayrollLineRow, PayrollEmployeeRow } from "@/lib/queries/hrms-extended";
 import { formatMoneyCents } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
+import { ListPagination } from "@/components/ui/list-pagination";
 import {
   applyWithholdingOnGross,
   computeMonthPayrollRows,
@@ -65,9 +66,30 @@ export function HrmsPayrollClient({
   const [runsTab, setRunsTab] = useState<"pending" | "paid">("pending");
   const [newRunEmployeeId, setNewRunEmployeeId] = useState("");
 
+  const [empSearch, setEmpSearch] = useState("");
+  const [empStatusFilter, setEmpStatusFilter] = useState("all");
+  const [empPage, setEmpPage] = useState(1);
+  const [empPageSize, setEmpPageSize] = useState(10);
+
+  // per-run lines search/pagination maps
+  const [linesQueryMap, setLinesQueryMap] = useState<Record<string, string>>({});
+  const [linesPageMap, setLinesPageMap] = useState<Record<string, number>>({});
+  const [linesPageSizeMap, setLinesPageSizeMap] = useState<Record<string, number>>({});
+
+  const setLinesQueryFor = (runId: string, q: string) => {
+    setLinesQueryMap((s) => ({ ...s, [runId]: q }));
+    setLinesPageMap((p) => ({ ...p, [runId]: 1 }));
+  };
+  const setLinesPageFor = (runId: string, page: number) => setLinesPageMap((p) => ({ ...p, [runId]: page }));
+  const setLinesPageSizeFor = (runId: string, size: number) => {
+    setLinesPageSizeMap((m) => ({ ...m, [runId]: size }));
+    setLinesPageMap((p) => ({ ...p, [runId]: 1 }));
+  };
+
   useEffect(() => {
     setNewRunEmployeeId("");
-  }, [viewMonth]);
+    setEmpPage(1);
+  }, [viewMonth, empSearch, empStatusFilter]);
 
   const effRuns = dataOverride?.runs ?? runs;
   const effLinesByRun = dataOverride?.linesByRun ?? linesByRun;
@@ -95,6 +117,24 @@ export function HrmsPayrollClient({
     () => computeMonthPayrollRows(viewMonth, effRuns, effLinesByRun, payrollEmployees, taxPercentNum),
     [viewMonth, effRuns, effLinesByRun, payrollEmployees, taxPercentNum],
   );
+
+  const empFiltered = useMemo(() => {
+    let result = monthRows;
+    if (empSearch.trim()) {
+      const q = empSearch.toLowerCase();
+      result = result.filter((r) => r.fullName.toLowerCase().includes(q));
+    }
+    if (empStatusFilter !== "all") {
+      result = result.filter((r) => r.status === empStatusFilter);
+    }
+    return result;
+  }, [monthRows, empSearch, empStatusFilter]);
+
+  const empTotalPages = Math.max(1, Math.ceil(empFiltered.length / empPageSize));
+  const empPaged = useMemo(() => {
+    const start = (empPage - 1) * empPageSize;
+    return empFiltered.slice(start, start + empPageSize);
+  }, [empFiltered, empPage, empPageSize]);
 
   async function refreshPayrollData() {
     const res = await loadPayrollBundleAction(tenantId);
@@ -163,12 +203,14 @@ export function HrmsPayrollClient({
     const fd = new FormData(form);
     const gross = toCents(String(fd.get("gross")));
     const ded = toCents(String(fd.get("deductions")));
+    const dedReason = String(fd.get("deductionReason") ?? "").trim();
     const res = await upsertPayrollLineAction({
       tenantId,
       payrollRunId: runId,
       employeeId: String(fd.get("employeeId")),
       grossCents: gross,
       deductionsCents: ded,
+      deductionReason: dedReason,
     });
     setLoading(false);
     if (!res.ok) {
@@ -214,7 +256,7 @@ export function HrmsPayrollClient({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-end gap-4">
+          <div className="flex flex-wrap items-end gap-4 border-b border-border pb-4">
             <label className="block text-xs text-zinc-400">
               Month
               <input
@@ -225,7 +267,7 @@ export function HrmsPayrollClient({
               />
             </label>
             <label className="block text-xs text-zinc-400">
-              Withholding tax (% of expected or gross)
+              Withholding tax (%)
               <Input
                 className="mt-1 w-28 font-mono"
                 type="number"
@@ -236,88 +278,122 @@ export function HrmsPayrollClient({
                 placeholder="0"
               />
             </label>
-            <p className="min-w-0 text-sm text-zinc-400">
-              <span className="text-zinc-500">Total tax (this month view):</span>{" "}
+            <label className="block text-xs text-zinc-400">
+              Search employees
+              <Input
+                className="mt-1 w-48 sm:w-64"
+                placeholder="Search by name..."
+                value={empSearch}
+                onChange={(e) => setEmpSearch(e.target.value)}
+              />
+            </label>
+            <label className="block text-xs text-zinc-400">
+              Status
+              <select
+                className="mt-1 h-10 min-w-[120px] rounded-lg border border-border bg-surface px-3 text-sm text-white"
+                value={empStatusFilter}
+                onChange={(e) => setEmpStatusFilter(e.target.value)}
+              >
+                <option value="all">All statuses</option>
+                {Object.entries(MONTH_PAYROLL_STATUS_LABEL).map(([val, label]) => (
+                  <option key={val} value={val}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <p className="min-w-0 pb-2.5 text-sm text-zinc-400">
+              <span className="text-zinc-500">Total tax:</span>{" "}
               <span className="font-mono text-gold">{formatMoneyCents(totalTaxCents)}</span>
             </p>
           </div>
           {payrollEmployees.length === 0 ? (
             <p className="text-sm text-zinc-500">Add employees in HRMS to see this list.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-border text-xs uppercase text-zinc-500">
-                    <th className="pb-2 pr-2">Employee</th>
-                    <th className="pb-2 pr-2">Expected / mo</th>
-                    <th className="pb-2 pr-2">Tax</th>
-                    <th className="pb-2 pr-2">Net in month</th>
-                    <th className="pb-2 pr-2">Run</th>
-                    <th className="pb-2">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthRows.map((row) => (
-                    <tr key={row.employeeId} className="border-b border-border/60">
-                      <td className="py-2.5 pr-2 text-white">{row.fullName}</td>
-                      <td className="py-2.5 pr-2 font-mono text-zinc-300">{formatMoneyCents(row.expectedCents)}</td>
-                      <td className="py-2.5 pr-2 font-mono text-zinc-400">
-                        {row.netAfterTaxCents != null ? formatMoneyCents(row.taxCents) : "—"}
-                      </td>
-                      <td className="py-2.5 pr-2 font-mono text-gold">{formatMoneyCents(row.netAfterTaxCents)}</td>
-                      <td className="py-2.5 pr-2">
-                        {canManage ? (
-                          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
-                            {row.runLabel ? <span className="text-xs text-zinc-500">{row.runLabel}</span> : null}
-                            {!row.runId ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                disabled={loading}
-                                onClick={() => {
-                                  setNewRunEmployeeId(row.employeeId);
-                                  document
-                                    .getElementById("hrms-new-payroll-run")
-                                    ?.scrollIntoView({ behavior: "smooth" });
-                                }}
-                              >
-                                Run
-                              </Button>
-                            ) : row.runStatus === "paid" ? (
-                              <span className="text-sm font-medium text-emerald-400">Paid</span>
-                            ) : (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                disabled={loading}
-                                onClick={() => row.runId && setRunStatus(row.runId, "paid")}
-                              >
-                                Run
-                              </Button>
-                            )}
-                          </div>
-                        ) : row.runId ? (
-                          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-                            {row.runLabel ? <span className="text-xs text-zinc-500">{row.runLabel}</span> : null}
-                            {row.runStatus === "paid" ? (
-                              <span className="text-sm font-medium text-emerald-400">Paid</span>
-                            ) : (
-                              <span className="text-xs capitalize text-zinc-500">{row.runStatus ?? "—"}</span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-zinc-500">—</span>
-                        )}
-                      </td>
-                      <td className="py-2.5">
-                        <Badge tone={monthPayrollBadgeTone(row.status)}>{MONTH_PAYROLL_STATUS_LABEL[row.status]}</Badge>
-                      </td>
+            <div className="space-y-4">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-xs uppercase text-zinc-500">
+                      <th className="pb-2 pr-2">Employee</th>
+                      <th className="pb-2 pr-2">Expected / mo</th>
+                      <th className="pb-2 pr-2">Tax</th>
+                      <th className="pb-2 pr-2">Net in month</th>
+                      <th className="pb-2 pr-2">Run</th>
+                      <th className="pb-2">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {empPaged.map((row) => (
+                      <tr key={row.employeeId} className="border-b border-border/60">
+                        <td className="py-2.5 pr-2 text-white">{row.fullName}</td>
+                        <td className="py-2.5 pr-2 font-mono text-zinc-300">{formatMoneyCents(row.expectedCents)}</td>
+                        <td className="py-2.5 pr-2 font-mono text-zinc-400">
+                          {row.netAfterTaxCents != null ? formatMoneyCents(row.taxCents) : "—"}
+                        </td>
+                        <td className="py-2.5 pr-2 font-mono text-gold">{formatMoneyCents(row.netAfterTaxCents)}</td>
+                        <td className="py-2.5 pr-2">
+                          {canManage ? (
+                            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+                              {row.runLabel ? <span className="text-xs text-zinc-500">{row.runLabel}</span> : null}
+                              {!row.runId ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={loading}
+                                  onClick={() => {
+                                    setNewRunEmployeeId(row.employeeId);
+                                    document
+                                      .getElementById("hrms-new-payroll-run")
+                                      ?.scrollIntoView({ behavior: "smooth" });
+                                  }}
+                                >
+                                  Run
+                                </Button>
+                              ) : row.runStatus === "paid" ? (
+                                <span className="text-sm font-medium text-emerald-400">Paid</span>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={loading}
+                                  onClick={() => row.runId && setRunStatus(row.runId, "paid")}
+                                >
+                                  Run
+                                </Button>
+                              )}
+                            </div>
+                          ) : row.runId ? (
+                            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                              {row.runLabel ? <span className="text-xs text-zinc-500">{row.runLabel}</span> : null}
+                              {row.runStatus === "paid" ? (
+                                <span className="text-sm font-medium text-emerald-400">Paid</span>
+                              ) : (
+                                <span className="text-xs capitalize text-zinc-500">{row.runStatus ?? "—"}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-zinc-500">—</span>
+                          )}
+                        </td>
+                        <td className="py-2.5">
+                          <Badge tone={monthPayrollBadgeTone(row.status)}>{MONTH_PAYROLL_STATUS_LABEL[row.status]}</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <ListPagination
+                itemLabel="employees"
+                totalItems={monthRows.length}
+                filteredItems={empFiltered.length}
+                page={empPage}
+                pageSize={empPageSize}
+                totalPages={empTotalPages}
+                onPageChange={setEmpPage}
+                onPageSizeChange={setEmpPageSize}
+              />
             </div>
           )}
         </CardContent>
@@ -429,17 +505,17 @@ export function HrmsPayrollClient({
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-1 border-b border-border">
+
               <button
                 type="button"
                 onClick={() => {
                   setRunsTab("pending");
                   setOpenRun(null);
                 }}
-                className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-                  runsTab === "pending"
-                    ? "border-gold text-gold"
-                    : "border-transparent text-zinc-500 hover:text-zinc-300"
-                }`}
+                className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${runsTab === "pending"
+                  ? "border-gold text-gold"
+                  : "border-transparent text-zinc-500 hover:text-zinc-300"
+                  }`}
               >
                 Pending (Draft) <span className="text-xs font-normal text-zinc-500">({pendingRuns.length})</span>
               </button>
@@ -449,11 +525,10 @@ export function HrmsPayrollClient({
                   setRunsTab("paid");
                   setOpenRun(null);
                 }}
-                className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-                  runsTab === "paid"
-                    ? "border-gold text-gold"
-                    : "border-transparent text-zinc-500 hover:text-zinc-300"
-                }`}
+                className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${runsTab === "paid"
+                  ? "border-gold text-gold"
+                  : "border-transparent text-zinc-500 hover:text-zinc-300"
+                  }`}
               >
                 Paid
                 <span className="ml-1.5 text-xs text-zinc-500">({paidRuns.length})</span>
@@ -467,104 +542,166 @@ export function HrmsPayrollClient({
             ) : null}
 
             {displayedRuns.map((run) => {
-            const lines = effLinesByRun[run.id] ?? [];
-            const isOpen = openRun === run.id;
-            const isPendingRun = run.status === "draft" || run.status === "processed";
-            return (
-              <Card key={run.id}>
-                <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <CardTitle className="text-base">{run.period_label}</CardTitle>
-                    <CardDescription>
-                      {String(run.period_start).slice(0, 10)} → {String(run.period_end).slice(0, 10)}
-                      {isPendingRun ? (
-                        <span className="ml-2">
-                          <Badge tone={run.status === "processed" ? "gold" : "gray"}>
-                            {run.status === "processed" ? "In progress" : "Draft"}
-                          </Badge>
-                        </span>
-                      ) : (
-                        <span className="ml-2">
-                          <Badge tone="green">Paid</Badge>
-                        </span>
-                      )}
-                    </CardDescription>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button type="button" size="sm" variant="secondary" onClick={() => setOpenRun(isOpen ? null : run.id)}>
-                      {isOpen ? "Collapse" : "Lines"}
-                    </Button>
-                    {canManage && isPendingRun ? (
-                      <Button type="button" size="sm" onClick={() => setRunStatus(run.id, "paid")} disabled={loading}>
-                        Mark paid
+              const lines = effLinesByRun[run.id] ?? [];
+              const isOpen = openRun === run.id;
+              const isPendingRun = run.status === "draft" || run.status === "processed";
+              return (
+                <Card key={run.id}>
+                  <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <CardTitle className="text-base">{run.period_label}</CardTitle>
+                      <CardDescription>
+                        {String(run.period_start).slice(0, 10)} → {String(run.period_end).slice(0, 10)}
+                        {isPendingRun ? (
+                          <span className="ml-2">
+                            <Badge tone={run.status === "processed" ? "gold" : "gray"}>
+                              {run.status === "processed" ? "In progress" : "Draft"}
+                            </Badge>
+                          </span>
+                        ) : (
+                          <span className="ml-2">
+                            <Badge tone="green">Paid</Badge>
+                          </span>
+                        )}
+                      </CardDescription>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="button" size="sm" variant="secondary" onClick={() => setOpenRun(isOpen ? null : run.id)}>
+                        {isOpen ? "Collapse" : "Lines"}
                       </Button>
-                    ) : null}
-                  </div>
-                </CardHeader>
-                {isOpen ? (
-                  <CardContent className="space-y-6">
-                    {canManage && payrollEmployees.length > 0 ? (
-                      <form className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6" onSubmit={(ev) => onLine(ev, run.id)}>
-                        <label className="text-xs text-zinc-400 lg:col-span-2">
-                          Employee
-                          <select
-                            name="employeeId"
-                            required
-                            className="mt-1 h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm"
-                          >
-                            {payrollEmployees.map((e) => (
-                              <option key={e.id} value={e.id}>
-                                {e.full_name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="text-xs text-zinc-400">
-                          Gross (ETB)
-                          <Input className="mt-1" name="gross" type="number" step="0.01" min="0" required placeholder="0.00" />
-                        </label>
-                        <label className="text-xs text-zinc-400">
-                          Deductions (ETB)
-                          <Input className="mt-1" name="deductions" type="number" step="0.01" min="0" placeholder="0.00" />
-                        </label>
-                        <div className="flex items-end lg:col-span-2">
-                          <Button type="submit" disabled={loading}>
-                            Save line
-                          </Button>
-                        </div>
-                      </form>
-                    ) : canManage ? (
-                      <p className="text-sm text-zinc-500">Add employees before payroll lines.</p>
-                    ) : null}
-                    {lines.length === 0 ? (
-                      <p className="text-sm text-zinc-500">No lines for this run.</p>
-                    ) : (
-                      <table className="w-full text-left text-sm">
-                        <thead>
-                          <tr className="border-b border-border text-xs uppercase text-zinc-500">
-                            <th className="pb-2">Employee</th>
-                            <th className="pb-2">Gross</th>
-                            <th className="pb-2">Deductions</th>
-                            <th className="pb-2">Net</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {lines.map((l) => (
-                            <tr key={l.id} className="border-b border-border/60">
-                              <td className="py-2 text-white">{l.employee_name ?? "—"}</td>
-                              <td className="py-2 font-mono">{formatMoneyCents(l.gross_cents)}</td>
-                              <td className="py-2 font-mono">{formatMoneyCents(l.deductions_cents)}</td>
-                              <td className="py-2 font-mono text-gold">{formatMoneyCents(l.net_cents)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </CardContent>
-                ) : null}
-              </Card>
-            );
-          })}
+                      {canManage && isPendingRun ? (
+                        <Button type="button" size="sm" onClick={() => setRunStatus(run.id, "paid")} disabled={loading}>
+                          Mark paid
+                        </Button>
+                      ) : null}
+                    </div>
+                  </CardHeader>
+                  {isOpen ? (
+                    <CardContent className="space-y-6">
+                      {canManage && payrollEmployees.length > 0 ? (
+                        <form className="grid gap-2 sm:grid-cols-2 lg:grid-cols-8" onSubmit={(ev) => onLine(ev, run.id)}>
+                          <label className="text-xs text-zinc-400 lg:col-span-2">
+                            Employee
+                            <select
+                              name="employeeId"
+                              required
+                              className="mt-1 h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm"
+                              defaultValue=""
+                              onChange={(e) => {
+                                const empId = e.target.value;
+                                const emp = payrollEmployees.find((p) => p.id === empId);
+                                if (emp && emp.monthly_salary_cents != null) {
+                                  const form = e.currentTarget.closest("form");
+                                  if (form) {
+                                    const grossInput = form.elements.namedItem("gross") as HTMLInputElement | null;
+                                    if (grossInput) {
+                                      grossInput.value = (emp.monthly_salary_cents / 100).toFixed(2);
+                                    }
+                                  }
+                                }
+                              }}
+                            >
+                              <option value="" disabled>Select employee…</option>
+                              {payrollEmployees.map((e) => (
+                                <option key={e.id} value={e.id}>
+                                  {e.full_name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="text-xs text-zinc-400">
+                            Gross (ETB)
+                            <Input className="mt-1" name="gross" type="number" step="0.01" min="0" required placeholder="0.00" />
+                          </label>
+                          <label className="text-xs text-zinc-400">
+                            Deductions (ETB)
+                            <Input className="mt-1" name="deductions" type="number" step="0.01" min="0" placeholder="0.00" />
+                          </label>
+                          <label className="text-xs text-zinc-400 lg:col-span-2">
+                            Deduction Reason
+                            <Input className="mt-1" name="deductionReason" placeholder="e.g. Penalty" />
+                          </label>
+                          <div className="flex items-end lg:col-span-2">
+                            <Button type="submit" disabled={loading}>
+                              Save line
+                            </Button>
+                          </div>
+                        </form>
+                      ) : canManage ? (
+                        <p className="text-sm text-zinc-500">Add employees before payroll lines.</p>
+                      ) : null}
+                      {(() => {
+                        const q = (linesQueryMap[run.id] ?? "").trim().toLowerCase();
+                        const filtered = lines.filter((l) => {
+                          if (!q) return true;
+                          return String(l.employee_name ?? "").toLowerCase().includes(q);
+                        });
+                        const page = linesPageMap[run.id] ?? 1;
+                        const pageSize = linesPageSizeMap[run.id] ?? 10;
+                        const total = filtered.length;
+                        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+                        const pageSafe = Math.min(Math.max(1, page), totalPages);
+                        const paged = filtered.slice((pageSafe - 1) * pageSize, (pageSafe - 1) * pageSize + pageSize);
+
+                        return (
+                          <div>
+                            <div className="flex items-center gap-3 mb-2">
+                              <label className="text-xs text-zinc-400">
+                                Search lines
+                                <Input
+                                  className="mt-1"
+                                  placeholder="Search by employee"
+                                  value={linesQueryMap[run.id] ?? ""}
+                                  onChange={(e) => setLinesQueryFor(run.id, e.target.value)}
+                                />
+                              </label>
+                            </div>
+                            {paged.length === 0 ? (
+                              <p className="text-sm text-zinc-500">No lines for this run.</p>
+                            ) : (
+                              <>
+                                <table className="w-full text-left text-sm">
+                                  <thead>
+                                    <tr className="border-b border-border text-xs uppercase text-zinc-500">
+                                      <th className="pb-2">Employee</th>
+                                      <th className="pb-2">Gross</th>
+                                      <th className="pb-2">Deductions</th>
+                                      <th className="pb-2">Reason</th>
+                                      <th className="pb-2">Net</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {paged.map((l) => (
+                                      <tr key={l.id} className="border-b border-border/60">
+                                        <td className="py-2 text-white">{l.employee_name ?? "—"}</td>
+                                        <td className="py-2 font-mono">{formatMoneyCents(l.gross_cents)}</td>
+                                        <td className="py-2 font-mono">{formatMoneyCents(l.deductions_cents)}</td>
+                                        <td className="py-2 text-zinc-400">{l.deduction_reason || "—"}</td>
+                                        <td className="py-2 font-mono text-gold">{formatMoneyCents(l.net_cents)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                <ListPagination
+                                  itemLabel="lines"
+                                  totalItems={lines.length}
+                                  filteredItems={filtered.length}
+                                  page={pageSafe}
+                                  pageSize={pageSize}
+                                  totalPages={totalPages}
+                                  onPageChange={(p) => setLinesPageFor(run.id, p)}
+                                  onPageSizeChange={(s) => setLinesPageSizeFor(run.id, s)}
+                                />
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </CardContent>
+                  ) : null}
+                </Card>
+              );
+            })}
           </>
         )}
       </div>

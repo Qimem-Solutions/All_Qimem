@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { localDateIso } from "@/lib/format";
 import { getUserContext } from "@/lib/queries/context";
+import { getServiceAccessForLayout } from "@/lib/auth/service-access";
 import { fetchReservationStats, fetchReservationsWithGuests } from "@/lib/queries/tenant-data";
 import { fetchHrrmStaffList } from "@/lib/queries/hrrm-staff";
 import { ReservationsLedgerClient } from "@/components/hrrm/reservations-ledger-client";
@@ -24,11 +25,13 @@ export default async function ReservationsPage() {
   }
 
   const todayIso = localDateIso();
-  const [{ rows, error: loadError }, stats, staff] = await Promise.all([
+  const [access, { rows, error: loadError }, stats, staff] = await Promise.all([
+    getServiceAccessForLayout(ctx, "hrrm"),
     fetchReservationsWithGuests(tenantId),
     fetchReservationStats(tenantId),
     fetchHrrmStaffList(tenantId),
   ]);
+  const canManage = access === "manage";
 
   return (
     <>
@@ -45,6 +48,7 @@ export default async function ReservationsPage() {
       rows={rows}
       loadError={loadError}
       todayIso={todayIso}
+      canManage={canManage}
       stats={{
         checkInsToday: stats.checkInsToday,
         departuresToday: stats.departuresToday,

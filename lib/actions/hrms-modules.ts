@@ -544,6 +544,7 @@ export async function upsertPayrollLineAction(input: {
   employeeId: string;
   grossCents: number;
   deductionsCents: number;
+  deductionReason?: string;
 }): Promise<Ok> {
   const gate = await dbOrAdmin(input.tenantId);
   if (!gate.ok) return { ok: false, error: gate.error };
@@ -597,6 +598,7 @@ export async function upsertPayrollLineAction(input: {
       employee_id: employeeId,
       gross_cents: input.grossCents,
       deductions_cents: input.deductionsCents,
+      deduction_reason: input.deductionReason?.trim() || null,
       net_cents: net,
     },
     { onConflict: "payroll_run_id,employee_id" },

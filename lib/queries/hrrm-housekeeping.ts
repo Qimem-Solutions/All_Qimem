@@ -66,13 +66,14 @@ export async function syncOvernightOccupiedRoomsToDirty(tenantId: string): Promi
 
   const { data: rooms, error: roomErr } = await supabase
     .from("rooms")
-    .select("id, housekeeping_status")
+    .select("id, housekeeping_status, operational_status")
     .eq("tenant_id", tenantId)
     .in("id", occupiedOvernightRoomIds);
 
   if (roomErr) return { ok: false, error: roomErr.message };
 
   const toDirty = (rooms ?? [])
+    .filter((room) => (room.operational_status ?? "").toLowerCase() !== "inactive")
     .filter((room) => (room.housekeeping_status ?? "clean").toLowerCase() !== "dirty")
     .map((room) => room.id);
 

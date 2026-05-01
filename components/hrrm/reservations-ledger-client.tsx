@@ -1,14 +1,17 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CalendarRange, Download, Search } from "lucide-react";
+import { ListPagination } from "@/components/ui/list-pagination";
+import { Download, Search } from "lucide-react";
 import { formatBirrCents, formatDate, formatRelative } from "@/lib/format";
 import type { ReservationLedgerRow } from "@/lib/queries/tenant-data";
 import { cn } from "@/lib/utils";
+import { updateReservationLedgerAction } from "@/lib/actions/hrrm-reservations";
 
 type FilterTab = "all" | "active" | "arrivals" | "departures" | "canceled";
 
@@ -126,17 +129,21 @@ export function ReservationsLedgerClient({
   loadError,
   stats,
   todayIso,
+  canManage,
 }: {
   rows: ReservationLedgerRow[];
   loadError: string | null;
   stats: { checkInsToday: number; departuresToday: number; activeBookings: number; error: string | null };
   todayIso: string;
+  canManage: boolean;
 }) {
+  const router = useRouter();
   const [tab, setTab] = useState<FilterTab>("all");
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [rangeOpen, setRangeOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [preferredSelectedId, setPreferredSelectedId] = useState<string | null>(() => allRows[0]?.id ?? null);
 
   const tabCounts = useMemo(() => {
@@ -185,15 +192,23 @@ export function ReservationsLedgerClient({
     });
   }, [allRows, tab, search, dateFrom, dateTo, todayIso]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageSafe = Math.min(Math.max(1, page), totalPages);
+  const offset = (pageSafe - 1) * pageSize;
+  const pagedRows = useMemo(
+    () => filtered.slice(offset, offset + pageSize),
+    [filtered, offset, pageSize],
+  );
+
   const selectedId = useMemo(() => {
-    if (filtered.length === 0) return null;
-    if (preferredSelectedId && filtered.some((r) => r.id === preferredSelectedId)) return preferredSelectedId;
-    return filtered[0]!.id;
-  }, [filtered, preferredSelectedId]);
+    if (pagedRows.length === 0) return null;
+    if (preferredSelectedId && pagedRows.some((r) => r.id === preferredSelectedId)) return preferredSelectedId;
+    return pagedRows[0]!.id;
+  }, [pagedRows, preferredSelectedId]);
 
   const selected = useMemo(
-    () => (selectedId ? filtered.find((r) => r.id === selectedId) : undefined),
-    [filtered, selectedId],
+    () => (selectedId ? pagedRows.find((r) => r.id === selectedId) : undefined),
+    [pagedRows, selectedId],
   );
 
   const onExport = useCallback(() => {
@@ -252,7 +267,10 @@ export function ReservationsLedgerClient({
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setTab(id)}
+                  onClick={() => {
+                    setTab(id);
+                    setPage(1);
+                  }}
                   className={cn(
                     "shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
                     tab === id
@@ -272,18 +290,59 @@ export function ReservationsLedgerClient({
                 className="pl-9"
                 placeholder="Search guest, confirmation, room…"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
                 aria-label="Filter reservations by search"
               />
             </div>
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="flex flex-wrap justify-end items-center gap-2">
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col">
+                  <label htmlFor="res-from" className="text-xs text-zinc-500">
+                    From
+                  </label>
+                  <Input
+                    id="res-from"
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => {
+                      setDateFrom(e.target.value);
+                      setPage(1);
+                    }}
+                    className="h-9 pl-3 min-w-[9rem]"
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <label htmlFor="res-to" className="text-xs text-zinc-500">
+                    To
+                  </label>
+                  <Input
+                    id="res-to"
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => {
+                      setDateTo(e.target.value);
+                      setPage(1);
+                    }}
+                    className="h-9 pl-3 min-w-[9rem]"
+                  />
+                </div>
+              </div>
               <Button
                 variant="secondary"
                 className="gap-2"
                 type="button"
-                onClick={() => setRangeOpen((o) => !o)}
+                onClick={() => {
+                  setDateFrom("");
+                  setDateTo("");
+                  setSearch("");
+                  setTab("all");
+                  setPage(1);
+                }}
               >
-                <CalendarRange className="h-4 w-4" /> Date range
+                Clear filters
               </Button>
               <Button
                 variant="secondary"
@@ -313,41 +372,10 @@ export function ReservationsLedgerClient({
               </button>
             ) : null}
           </p>
+          <p className="text-xs text-zinc-500 sm:pl-4 sm:text-right">
+            <span className="text-zinc-400">Tip:</span> Use the date fields next to filters to narrow stays.
+          </p>
         </div>
-        {rangeOpen ? (
-          <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-elevated/40 p-4 sm:flex-row sm:items-end sm:gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-500" htmlFor="res-from">
-                Check-in on or after
-              </label>
-              <Input
-                id="res-from"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full min-w-[10rem] sm:w-auto"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-500" htmlFor="res-to">
-                Check-out on or before
-              </label>
-              <Input
-                id="res-to"
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-full min-w-[10rem] sm:w-auto"
-              />
-            </div>
-            <p className="text-xs text-zinc-500 sm:max-w-sm sm:pb-2">
-              With <span className="text-zinc-400">both</span> fields: show stays that overlap the range (check-in on or
-              before the end date, check-out on or after the start date). If only the first field is set, only stays
-              with check-out on or after that day. If only the second is set, only stays with check-in on or before that
-              day.
-            </p>
-          </div>
-        ) : null}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-3">
@@ -376,7 +404,7 @@ export function ReservationsLedgerClient({
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((row) => {
+                  {pagedRows.map((row) => {
                     const isSel = row.id === selectedId;
                     return (
                       <tr
@@ -420,6 +448,19 @@ export function ReservationsLedgerClient({
                 </tbody>
               </table>
             )}
+            <ListPagination
+              itemLabel="reservations"
+              totalItems={allRows.length}
+              filteredItems={filtered.length}
+              page={pageSafe}
+              pageSize={pageSize}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              onPageSizeChange={(next) => {
+                setPageSize(next);
+                setPage(1);
+              }}
+            />
           </CardContent>
         </Card>
 
@@ -477,6 +518,9 @@ export function ReservationsLedgerClient({
                     {formatPaymentStatusLabel(selected.payment_status)}
                   </Badge>
                 </div>
+                {canManage ? (
+                  <ReservationEditor key={selected.id} reservation={selected} onSaved={() => router.refresh()} />
+                ) : null}
                 <div>
                   <p className="text-[10px] font-semibold uppercase text-zinc-500">Reference</p>
                   <p className="font-mono text-xs text-zinc-400 break-all">
@@ -501,5 +545,88 @@ export function ReservationsLedgerClient({
         </Card>
       </div>
     </div>
+  );
+}
+
+function ReservationEditor({
+  reservation,
+  onSaved,
+}: {
+  reservation: ReservationLedgerRow;
+  onSaved: () => void;
+}) {
+  const [editCheckIn, setEditCheckIn] = useState(reservation.check_in);
+  const [editCheckOut, setEditCheckOut] = useState(reservation.check_out);
+  const [editStatus, setEditStatus] = useState(reservation.status);
+  const [editPaymentStatus, setEditPaymentStatus] = useState(reservation.payment_status ?? "pending");
+  const [editErr, setEditErr] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+
+  return (
+    <form
+      className="space-y-3 rounded-lg border border-border/60 bg-foreground/5 p-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setEditErr(null);
+        setEditSaving(true);
+        const result = await updateReservationLedgerAction({
+          reservationId: reservation.id,
+          checkIn: editCheckIn,
+          checkOut: editCheckOut,
+          status: editStatus,
+          paymentStatus: editPaymentStatus,
+        });
+        setEditSaving(false);
+        if (!result.ok) {
+          setEditErr(result.error);
+          return;
+        }
+        onSaved();
+      }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Edit reservation</p>
+        <Button type="submit" size="sm" disabled={editSaving}>
+          {editSaving ? "Saving…" : "Save"}
+        </Button>
+      </div>
+      {editErr ? <p className="text-xs text-red-400">{editErr}</p> : null}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Check in</label>
+          <Input className="mt-1" type="date" value={editCheckIn} onChange={(e) => setEditCheckIn(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Check out</label>
+          <Input className="mt-1" type="date" value={editCheckOut} onChange={(e) => setEditCheckOut(e.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Status</label>
+          <select
+            className="mt-1 flex h-10 w-full rounded-md border border-border bg-surface px-3 text-sm"
+            value={editStatus}
+            onChange={(e) => setEditStatus(e.target.value)}
+          >
+            <option value="pending">Pending</option>
+            <option value="checked_in">Checked in</option>
+            <option value="checked_out">Checked out</option>
+            <option value="canceled">Canceled</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Payment</label>
+          <select
+            className="mt-1 flex h-10 w-full rounded-md border border-border bg-surface px-3 text-sm"
+            value={editPaymentStatus}
+            onChange={(e) => setEditPaymentStatus(e.target.value)}
+          >
+            <option value="pending">Pending</option>
+            <option value="paid">Paid</option>
+          </select>
+        </div>
+      </div>
+    </form>
   );
 }
