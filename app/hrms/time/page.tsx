@@ -3,7 +3,7 @@ import { getUserContext } from "@/lib/queries/context";
 import { canManageHrStaff } from "@/lib/auth/can-manage-hr-staff";
 import { fetchAttendanceLogs } from "@/lib/queries/tenant-data";
 import { fetchHrmsDashboardStats } from "@/lib/queries/tenant-data";
-import { fetchHrmsShiftsTable, fetchEmployeeOptions } from "@/lib/queries/hrms-extended";
+import { fetchHrmsShiftsTable, fetchEmployeeOptions, fetchActiveEmployeesWithDept, fetchAttendanceLogsRange } from "@/lib/queries/hrms-extended";
 import { TimeWorkforceClient } from "@/components/hrms/time-workforce-client";
 import { createClient } from "@/lib/supabase/server";
 
@@ -24,12 +24,20 @@ export default async function HrmsTimePage() {
     );
   }
 
-  const [manage, shiftsRes, attRes, empRes, dash] = await Promise.all([
+  const rangeEnd = new Date();
+  const rangeStart = new Date(rangeEnd);
+  rangeStart.setUTCDate(rangeStart.getUTCDate() - 120);
+  const rangeStartIso = rangeStart.toISOString();
+  const rangeEndIso = rangeEnd.toISOString();
+
+  const [manage, shiftsRes, attRes, empRes, dash, activeEmpRes, rangeAttRes] = await Promise.all([
     canManageHrStaff(ctx),
     fetchHrmsShiftsTable(tenantId, 120),
     fetchAttendanceLogs(tenantId),
     fetchEmployeeOptions(tenantId),
     fetchHrmsDashboardStats(tenantId),
+    fetchActiveEmployeesWithDept(tenantId),
+    fetchAttendanceLogsRange(tenantId, rangeStartIso, rangeEndIso),
   ]);
 
   const supabase = await createClient();
@@ -50,8 +58,8 @@ export default async function HrmsTimePage() {
           Time & attendance
         </h1>
         <p className="mt-1 max-w-2xl text-sm text-zinc-500">
-          Scheduling and attendance in one place: shifts, punch log, and quick actions (manage access
-          required to add shifts and punches).
+          Live attendance dashboard, scheduling with date ranges and shift types, punch log, automated
+          timesheets, and late / overtime flags (manage access required for edits).
         </p>
       </div>
 
@@ -60,6 +68,10 @@ export default async function HrmsTimePage() {
         canManage={manage}
         shifts={shiftsRes.rows}
         attendance={attRes.rows}
+        attendanceRange={rangeAttRes.rows}
+        attendanceRangeError={rangeAttRes.error}
+        dashboardEmployees={activeEmpRes.rows}
+        dashboardEmployeesError={activeEmpRes.error}
         employees={empRes.rows}
         punchToday={punchToday}
         shiftError={shiftsRes.error}

@@ -1,17 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { Input } from "@/components/ui/input";
 import { searchGuestsHrrmAction } from "@/lib/actions/hrrm-availability";
 import { getFrontDeskAvailableRoomsAction, registerGuestAtFrontDeskAction } from "@/lib/actions/hrrm-guests";
+import {
+  approvePortfolioOnlineRequestAction,
+  getPortfolioOnlineRequestDocUrlAction,
+  rejectPortfolioOnlineRequestAction,
+  type PortfolioOnlineReservationRequestRow,
+} from "@/lib/actions/hrrm-portfolio-online-requests";
 import { formatBirrCents, formatDate } from "@/lib/format";
 import type { GuestDirectoryRow } from "@/lib/hrrm-guest-directory";
 import { nightsBetween } from "@/lib/hrrm-pricing";
 import { GuestDetailsDialog } from "@/components/hrrm/guest-details-dialog";
-import { Search, UserPlus } from "lucide-react";
+import { Eye, Loader2, Search, UserPlus, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { toUserFacingError } from "@/lib/errors/user-facing";
 
 type GuestHit = { id: string; full_name: string; phone: string | null };
@@ -31,16 +41,121 @@ function roomOptionLabel(room: RoomOption) {
   return parts.join(" · ");
 }
 
+function onlineStatusTone(status: string): "gold" | "green" | "red" | "gray" {
+  const s = status.toLowerCase();
+  if (s === "approved") return "green";
+  if (s === "rejected") return "red";
+  if (s === "pending") return "gold";
+  return "gray";
+}
+
+function paymentReceiptViewerVariant(storagePath: string | null): "image" | "pdf" {
+  const p = (storagePath ?? "").toLowerCase();
+  return p.endsWith(".pdf") ? "pdf" : "image";
+}
+
+type SignedDocViewerState =
+  | { phase: "closed" }
+  | { phase: "loading"; title: string; variant: "image" | "pdf" }
+  | { phase: "ready"; title: string; variant: "image" | "pdf"; url: string };
+
+function SignedDocViewerModal({
+  state,
+  onClose,
+}: {
+  state: SignedDocViewerState;
+  onClose: () => void;
+}) {
+  const open = state.phase !== "closed";
+  const loading = state.phase === "loading";
+  const title = state.phase === "closed" ? "" : state.title;
+  const variant = state.phase === "ready" ? state.variant : state.phase === "loading" ? state.variant : "image";
+  const url = state.phase === "ready" ? state.url : null;
+
+  useEffect(() => {
+    if (!open || loading) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, loading, onClose]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[10090] flex items-center justify-center p-3 sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="signed-doc-viewer-title"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default bg-black/82 backdrop-blur-[2px]"
+        aria-label="Close viewer"
+        onClick={onClose}
+      />
+      <div
+        className="relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-surface-elevated shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <h2 id="signed-doc-viewer-title" className="truncate text-sm font-semibold text-foreground">
+            {title}
+          </h2>
+          <div className="flex shrink-0 items-center gap-2">
+            {url ? (
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  "inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-elevated px-3 text-xs font-medium text-foreground transition-colors",
+                  "hover:bg-zinc-200 dark:hover:bg-zinc-800",
+                )}
+              >
+                Open in new tab
+              </a>
+            ) : null}
+            <Button type="button" variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={onClose} aria-label="Close">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        <div className="flex min-h-[240px] flex-1 items-center justify-center overflow-auto bg-black/40 p-4">
+          {loading ? (
+            <div className="flex flex-col items-center gap-3 py-16 text-zinc-400">
+              <Loader2 className="h-8 w-8 animate-spin text-gold" aria-hidden />
+              <p className="text-sm">Loading document…</p>
+            </div>
+          ) : null}
+          {!loading && url && variant === "image" ? (
+            // eslint-disable-next-line @next/next/no-img-element -- signed Supabase URL; no optimization CDN
+            <img src={url} alt="" className="max-h-[min(78vh,760px)] max-w-full rounded-md object-contain shadow-lg" />
+          ) : null}
+          {!loading && url && variant === "pdf" ? (
+            <iframe title={title} src={url} className="h-[min(78vh,760px)] w-full rounded-md border border-border bg-white" />
+          ) : null}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function FrontDeskPageClient({
   canManage,
   defaultCheckIn,
   defaultCheckOut,
   rooms,
+  onlineRequests,
 }: {
   canManage: boolean;
   defaultCheckIn: string;
   defaultCheckOut: string;
   rooms: RoomOption[];
+  onlineRequests: PortfolioOnlineReservationRequestRow[];
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -74,6 +189,65 @@ export function FrontDeskPageClient({
   const [selected, setSelected] = useState<GuestHit | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const selectedQueryLocked = selected != null && q.trim() === selected.full_name.trim();
+
+  const [deskTab, setDeskTab] = useState<"walkin" | "online">("walkin");
+  const [onlineBusyId, setOnlineBusyId] = useState<string | null>(null);
+  const [onlineErr, setOnlineErr] = useState<string | null>(null);
+  const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
+  const [docViewer, setDocViewer] = useState<SignedDocViewerState>({ phase: "closed" });
+
+  const closeDocViewer = useCallback(() => setDocViewer({ phase: "closed" }), []);
+
+  const openOnlineDoc = useCallback(
+    async (
+      requestId: string,
+      doc: "national_id" | "payment_receipt",
+      storagePath: string | null,
+    ) => {
+      setOnlineErr(null);
+      const title = doc === "national_id" ? "National ID" : "Payment receipt";
+      const variant = doc === "national_id" ? "image" : paymentReceiptViewerVariant(storagePath);
+      setDocViewer({ phase: "loading", title, variant });
+      const r = await getPortfolioOnlineRequestDocUrlAction(requestId, doc);
+      if (!r.ok) {
+        setDocViewer({ phase: "closed" });
+        setOnlineErr(toUserFacingError(r.error));
+        return;
+      }
+      setDocViewer({ phase: "ready", title, variant, url: r.url });
+    },
+    [],
+  );
+
+  const onApproveOnline = useCallback(
+    async (requestId: string) => {
+      if (!canManage) return;
+      setOnlineErr(null);
+      setOnlineBusyId(requestId);
+      const r = await approvePortfolioOnlineRequestAction(requestId);
+      setOnlineBusyId(null);
+      if (!r.ok) {
+        setOnlineErr(toUserFacingError(r.error));
+        return;
+      }
+      router.refresh();
+    },
+    [canManage, router],
+  );
+
+  const confirmRejectOnline = useCallback(async () => {
+    if (!rejectTargetId || !canManage) return;
+    setOnlineErr(null);
+    setOnlineBusyId(rejectTargetId);
+    const r = await rejectPortfolioOnlineRequestAction(rejectTargetId);
+    setOnlineBusyId(null);
+    if (!r.ok) {
+      setOnlineErr(toUserFacingError(r.error));
+      return;
+    }
+    setRejectTargetId(null);
+    router.refresh();
+  }, [rejectTargetId, canManage, router]);
 
   const applyGuestToForm = useCallback((guest: GuestDirectoryRow) => {
     setExistingGuestId(guest.id);
@@ -277,9 +451,157 @@ export function FrontDeskPageClient({
         <h1 className="text-2xl font-semibold text-white [font-family:var(--font-outfit),system-ui,sans-serif]">
           Front desk
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">Register new walk-ins, or search for a guest to view details, book, or check out.</p>
+        <p className="mt-1 text-sm text-zinc-500">
+          Register walk-ins, review website booking requests, or search guests to view details and check out.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={deskTab === "walkin" ? "primary" : "secondary"}
+            onClick={() => setDeskTab("walkin")}
+          >
+            Walk-in
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={deskTab === "online" ? "primary" : "secondary"}
+            onClick={() => setDeskTab("online")}
+          >
+            Online request
+            {onlineRequests.filter((r) => r.status === "pending").length > 0 ? (
+              <Badge tone="orange" className="ml-2">
+                {onlineRequests.filter((r) => r.status === "pending").length}
+              </Badge>
+            ) : null}
+          </Button>
+        </div>
       </div>
 
+      {onlineErr ? (
+        <p className="rounded-lg border border-red-500/25 bg-red-950/30 px-4 py-3 text-sm text-red-300">{onlineErr}</p>
+      ) : null}
+
+      {deskTab === "online" ? (
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader>
+            <CardTitle>Online requests</CardTitle>
+            <CardDescription>
+              Guests who submitted ID and payment proof from the public portfolio. Approve to assign a free room of that
+              type and record payment as paid; reject keeps inventory open.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="overflow-x-auto p-0 sm:p-6">
+            {onlineRequests.length === 0 ? (
+              <p className="px-6 py-8 text-sm text-zinc-500">No online booking requests yet.</p>
+            ) : (
+              <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-border text-[11px] uppercase tracking-wide text-zinc-500">
+                    <th className="px-4 py-3 font-medium">Reference</th>
+                    <th className="px-4 py-3 font-medium">Guest</th>
+                    <th className="px-4 py-3 font-medium">Phone</th>
+                    <th className="px-4 py-3 font-medium">Room type</th>
+                    <th className="px-4 py-3 font-medium">Stay</th>
+                    <th className="px-4 py-3 font-medium">Total</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium text-center">National ID</th>
+                    <th className="px-4 py-3 font-medium text-center">Payment</th>
+                    <th className="px-4 py-3 font-medium text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {onlineRequests.map((row) => {
+                    const pending = row.status === "pending";
+                    const busy = onlineBusyId === row.id;
+                    return (
+                      <tr key={row.id} className="border-b border-border/60 hover:bg-foreground/[0.02]">
+                        <td className="px-4 py-3 font-mono text-xs text-zinc-300">{row.reference_code}</td>
+                        <td className="max-w-[140px] truncate px-4 py-3 font-medium text-foreground">{row.guest_full_name}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-zinc-400">{row.guest_phone}</td>
+                        <td className="max-w-[120px] truncate px-4 py-3 text-zinc-400">{row.room_type_name}</td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-zinc-400">
+                          {formatDate(row.check_in)} → {formatDate(row.check_out)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-zinc-300">
+                          {formatBirrCents(Number(row.stay_total_cents))}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge tone={onlineStatusTone(row.status)}>{row.status}</Badge>
+                          {row.status === "approved" ? (
+                            <span className="mt-1 block text-[10px] text-emerald-500/90">Payment recorded as paid</span>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-9 w-9 p-0"
+                            disabled={!row.national_id_storage_path}
+                            title={row.national_id_storage_path ? "View national ID" : "No file"}
+                            onClick={() => void openOnlineDoc(row.id, "national_id", row.national_id_storage_path)}
+                          >
+                            <Eye className="h-4 w-4" aria-hidden />
+                            <span className="sr-only">View national ID</span>
+                          </Button>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-9 w-9 p-0"
+                            disabled={!row.payment_receipt_storage_path}
+                            title={row.payment_receipt_storage_path ? "View payment receipt" : "No file"}
+                            onClick={() =>
+                              void openOnlineDoc(row.id, "payment_receipt", row.payment_receipt_storage_path)
+                            }
+                          >
+                            <Eye className="h-4 w-4" aria-hidden />
+                            <span className="sr-only">View payment receipt</span>
+                          </Button>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                          {pending && canManage ? (
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={busy}
+                                onClick={() => void onApproveOnline(row.id)}
+                              >
+                                {busy ? "…" : "Approve"}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                disabled={busy}
+                                onClick={() => setRejectTargetId(row.id)}
+                              >
+                                Reject
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-zinc-600">—</span>
+                          )}
+                          {!canManage && pending ? (
+                            <span className="mt-1 block text-[10px] text-zinc-600">Manage access to act</span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {deskTab === "walkin" ? (
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="min-w-0">
           <CardHeader>
@@ -589,6 +911,20 @@ export function FrontDeskPageClient({
           </CardContent>
         </Card>
       </div>
+      ) : null}
+
+      <SignedDocViewerModal state={docViewer} onClose={closeDocViewer} />
+
+      <ConfirmModal
+        open={rejectTargetId != null}
+        title="Reject this request?"
+        description="The guest will not get a reservation and no room will be held. They may submit again."
+        confirmLabel="Reject"
+        destructive
+        loading={rejectTargetId != null && onlineBusyId === rejectTargetId}
+        onCancel={() => setRejectTargetId(null)}
+        onConfirm={() => confirmRejectOnline()}
+      />
 
       <GuestDetailsDialog
         open={detailOpen}

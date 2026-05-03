@@ -38,6 +38,12 @@ function toCents(s: string): number {
   return Math.round(n * 100);
 }
 
+/** Gross field: ETB from monthly_salary_cents (2 decimal places). */
+function grossInputFromMonthlySalaryCents(cents: number | null | undefined): string {
+  if (cents == null || Number.isNaN(cents) || cents <= 0) return "0.00";
+  return (cents / 100).toFixed(2);
+}
+
 function monthTitleFromPicker(ym: string): string {
   const [y, m] = ym.split("-").map((x) => Number.parseInt(x, 10));
   if (!y || !m) return "";
@@ -64,6 +70,10 @@ export function HrmsPayrollClient({
   } | null>(null);
   const [runsTab, setRunsTab] = useState<"pending" | "paid">("pending");
   const [newRunEmployeeId, setNewRunEmployeeId] = useState("");
+  /** Draft for “Save line” per run: gross auto-filled from expected monthly salary when employee changes. */
+  const [lineFormByRunId, setLineFormByRunId] = useState<
+    Record<string, { employeeId: string; gross: string; deductions: string }>
+  >({});
 
   useEffect(() => {
     setNewRunEmployeeId("");
@@ -154,19 +164,21 @@ export function HrmsPayrollClient({
     await refreshPayrollData();
   }
 
-  async function onLine(e: React.FormEvent<HTMLFormElement>, runId: string) {
-    e.preventDefault();
-    const form = e.currentTarget;
+  async function onLine(runId: string) {
     if (!canManage) return;
+    const draft = lineFormByRunId[runId];
+    if (!draft?.employeeId) {
+      setErr("Select an employee.");
+      return;
+    }
     setErr(null);
     setLoading(true);
-    const fd = new FormData(form);
-    const gross = toCents(String(fd.get("gross")));
-    const ded = toCents(String(fd.get("deductions")));
+    const gross = toCents(draft.gross);
+    const ded = toCents(draft.deductions);
     const res = await upsertPayrollLineAction({
       tenantId,
       payrollRunId: runId,
-      employeeId: String(fd.get("employeeId")),
+      employeeId: draft.employeeId,
       grossCents: gross,
       deductionsCents: ded,
     });
@@ -175,7 +187,11 @@ export function HrmsPayrollClient({
       setErr(res.error);
       return;
     }
-    form.reset();
+    setLineFormByRunId((prev) => {
+      const next = { ...prev };
+      delete next[runId];
+      return next;
+    });
     await refreshPayrollData();
   }
 
@@ -470,6 +486,13 @@ export function HrmsPayrollClient({
             const lines = effLinesByRun[run.id] ?? [];
             const isOpen = openRun === run.id;
             const isPendingRun = run.status === "draft" || run.status === "processed";
+            const firstEmpId = payrollEmployees[0]?.id ?? "";
+            const lineDraft = lineFormByRunId[run.id];
+            const lineEmployeeId = lineDraft?.employeeId ?? firstEmpId;
+            const salaryCents = payrollEmployees.find((e) => e.id === lineEmployeeId)?.monthly_salary_cents;
+            const lineGrossDisplayed =
+              lineDraft?.gross ?? grossInputFromMonthlySalaryCents(salaryCents);
+            const lineDeductionsDisplayed = lineDraft?.deductions ?? "0.00";
             return (
               <Card key={run.id}>
                 <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
@@ -504,13 +527,31 @@ export function HrmsPayrollClient({
                 {isOpen ? (
                   <CardContent className="space-y-6">
                     {canManage && payrollEmployees.length > 0 ? (
-                      <form className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6" onSubmit={(ev) => onLine(ev, run.id)}>
+                      <form
+                        className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6"
+                        onSubmit={(ev) => {
+                          ev.preventDefault();
+                          void onLine(run.id);
+                        }}
+                      >
                         <label className="text-xs text-zinc-400 lg:col-span-2">
                           Employee
                           <select
-                            name="employeeId"
                             required
                             className="mt-1 h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm"
+                            value={lineEmployeeId}
+                            onChange={(e) => {
+                              const id = e.target.value;
+                              const emp = payrollEmployees.find((x) => x.id === id);
+                              setLineFormByRunId((prev) => ({
+                                ...prev,
+                                [run.id]: {
+                                  employeeId: id,
+                                  gross: grossInputFromMonthlySalaryCents(emp?.monthly_salary_cents),
+                                  deductions: prev[run.id]?.deductions ?? "0.00",
+                                },
+                              }));
+                            }}
                           >
                             {payrollEmployees.map((e) => (
                               <option key={e.id} value={e.id}>
@@ -521,11 +562,46 @@ export function HrmsPayrollClient({
                         </label>
                         <label className="text-xs text-zinc-400">
                           Gross (ETB)
-                          <Input className="mt-1" name="gross" type="number" step="0.01" min="0" required placeholder="0.00" />
+                          <Input
+                            className="mt-1"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            required
+                            value={lineGrossDisplayed}
+                            onChange={(e) =>
+                              setLineFormByRunId((prev) => ({
+                                ...prev,
+                                [run.id]: {
+                                  employeeId: lineEmployeeId,
+                                  gross: e.target.value,
+                                  deductions: prev[run.id]?.deductions ?? lineDeductionsDisplayed,
+                                },
+                              }))
+                            }
+                            placeholder="0.00"
+                          />
                         </label>
                         <label className="text-xs text-zinc-400">
                           Deductions (ETB)
-                          <Input className="mt-1" name="deductions" type="number" step="0.01" min="0" placeholder="0.00" />
+                          <Input
+                            className="mt-1"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={lineDeductionsDisplayed}
+                            onChange={(e) =>
+                              setLineFormByRunId((prev) => ({
+                                ...prev,
+                                [run.id]: {
+                                  employeeId: lineEmployeeId,
+                                  gross: prev[run.id]?.gross ?? lineGrossDisplayed,
+                                  deductions: e.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="0.00"
+                          />
                         </label>
                         <div className="flex items-end lg:col-span-2">
                           <Button type="submit" disabled={loading}>

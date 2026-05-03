@@ -71,19 +71,25 @@ type SupabaseDb = Awaited<ReturnType<typeof createClient>> | ReturnType<typeof c
 export async function createShiftAction(input: {
   tenantId: string;
   employeeId: string;
-  shiftDate: string;
+  shiftDateFrom: string;
+  shiftDateTo: string;
   startTime: string;
   endTime: string;
   shiftType?: string | null;
 }): Promise<Ok<{ id: string }>> {
   const gate = await dbOrAdmin(input.tenantId);
   if (!gate.ok) return { ok: false, error: gate.error };
+  const from = input.shiftDateFrom.trim();
+  const to = input.shiftDateTo.trim() || from;
+  if (!from) return { ok: false, error: "Shift start date is required." };
+  if (to < from) return { ok: false, error: "Shift end date cannot be before start date." };
   const { data, error } = await gate.db
     .from("shifts")
     .insert({
       tenant_id: input.tenantId,
       employee_id: input.employeeId,
-      shift_date: input.shiftDate,
+      shift_date: from,
+      shift_date_to: to,
       start_time: input.startTime,
       end_time: input.endTime,
       shift_type: input.shiftType?.trim() || null,
@@ -408,6 +414,92 @@ export async function submitRecruitmentApplicationAction(
 
   revalidateHr();
   revalidatePath("/hotel/dashboard");
+  return { ok: true, data: { id: candidateId } };
+}
+
+/** Public `/p/{slug}` job applications — no sign-in; validates open requisition server-side. */
+export async function submitPublicJobApplicationAction(
+  _prev: unknown,
+  formData: FormData,
+): Promise<Ok<{ id: string }>> {
+  const tenantId = String(formData.get("tenantId") ?? "").trim();
+  const requisitionId = String(formData.get("requisitionId") ?? "").trim();
+  const portfolioSlug = String(formData.get("portfolioSlug") ?? "").trim();
+  const fullName = String(formData.get("fullName") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim();
+  const phone = String(formData.get("phone") ?? "").trim();
+  const notes = String(formData.get("notes") ?? "").trim();
+  const file = formData.get("cv");
+
+  if (!tenantId) return { ok: false, error: "Missing property." };
+  if (!requisitionId) return { ok: false, error: "Select an open position." };
+  if (!fullName) return { ok: false, error: "Enter your full name." };
+
+  let admin: ReturnType<typeof createServiceRoleClient>;
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    return { ok: false, error: "Applications are temporarily unavailable." };
+  }
+
+  const { data: reqRow, error: reqErr } = await admin
+    .from("job_requisitions")
+    .select("id, status, tenant_id")
+    .eq("id", requisitionId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (reqErr) return { ok: false, error: toUserFacingError(reqErr.message) };
+  if (!reqRow) return { ok: false, error: "Invalid job posting." };
+  if (reqRow.status !== "open") {
+    return { ok: false, error: "That posting is not open for applications." };
+  }
+
+  const { data: created, error: insErr } = await admin
+    .from("job_candidates")
+    .insert({
+      tenant_id: tenantId,
+      requisition_id: requisitionId,
+      full_name: fullName,
+      email: email || null,
+      phone: phone || null,
+      notes: notes || null,
+      stage: "submitted",
+    })
+    .select("id")
+    .single();
+  if (insErr) return { ok: false, error: toUserFacingError(insErr.message) };
+
+  const candidateId = created!.id;
+
+  if (file instanceof File && file.size > 0) {
+    if (file.size > 10 * 1024 * 1024) {
+      await admin.from("job_candidates").delete().eq("id", candidateId).eq("tenant_id", tenantId);
+      return { ok: false, error: "CV file must be 10 MB or smaller." };
+    }
+    const safe = file.name.replace(/[^\w.\-()+ ]/g, "_").slice(0, 120) || "cv";
+    const path = `${tenantId}/${candidateId}/${Date.now()}-${safe}`;
+    const buf = Buffer.from(await file.arrayBuffer());
+    const { error: upErr } = await admin.storage.from("recruitment-cvs").upload(path, buf, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+    if (upErr) {
+      await admin.from("job_candidates").delete().eq("id", candidateId).eq("tenant_id", tenantId);
+      return { ok: false, error: toUserFacingError(upErr.message) };
+    }
+    const { error: pathErr } = await admin
+      .from("job_candidates")
+      .update({ cv_storage_path: path })
+      .eq("id", candidateId)
+      .eq("tenant_id", tenantId);
+    if (pathErr) return { ok: false, error: toUserFacingError(pathErr.message) };
+  }
+
+  revalidateHr();
+  revalidatePath("/hotel/dashboard");
+  if (portfolioSlug) {
+    revalidatePath(`/p/${portfolioSlug}`);
+  }
   return { ok: true, data: { id: candidateId } };
 }
 

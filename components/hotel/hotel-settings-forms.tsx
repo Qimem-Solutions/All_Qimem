@@ -26,6 +26,17 @@ import {
 } from "@/lib/actions/hotel-settings";
 import { HotelGallerySettings } from "@/components/hotel/hotel-gallery-settings";
 
+/** Value for native `<input type="time" />` (leading zeros; strips seconds if present). */
+function timeInputValue(raw: string | null | undefined): string {
+  if (!raw?.trim()) return "";
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?/.exec(raw.trim());
+  if (!m) return "";
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return "";
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
 const control =
   "flex w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-gold/60";
 const textareaClass = cn(control, "min-h-[100px] resize-y");
@@ -361,7 +372,7 @@ export function HotelSettingsForms({ settings }: { settings: HotelTenantSettings
           <SectionHeader
             icon={Phone}
             title="Contacts & policies"
-            description="Default phone, reservations email, check-in/out times, and policy notes for your team."
+            description="Phone, reservations email, check-in/out, policies — plus public portfolio footer (address, tagline, socials on /p/your-slug)."
           />
         </CardHeader>
         <CardContent>
@@ -402,10 +413,13 @@ export function HotelSettingsForms({ settings }: { settings: HotelTenantSettings
                 <Input
                   id="default_check_in_time"
                   name="default_check_in_time"
-                  defaultValue={settings.default_check_in_time ?? ""}
-                  placeholder="15:00"
+                  type="time"
+                  step={60}
+                  defaultValue={timeInputValue(settings.default_check_in_time)}
                 />
-                <p className="mt-1 text-[11px] text-muted">24-hour format (HH:MM).</p>
+                <p className="mt-1 text-[11px] text-muted">
+                  Use the time picker — stored as 24-hour HH:MM for guests and portfolio.
+                </p>
               </div>
               <div>
                 <label className={labelClass} htmlFor="default_check_out_time">
@@ -414,10 +428,13 @@ export function HotelSettingsForms({ settings }: { settings: HotelTenantSettings
                 <Input
                   id="default_check_out_time"
                   name="default_check_out_time"
-                  defaultValue={settings.default_check_out_time ?? ""}
-                  placeholder="11:00"
+                  type="time"
+                  step={60}
+                  defaultValue={timeInputValue(settings.default_check_out_time)}
                 />
-                <p className="mt-1 text-[11px] text-muted">24-hour format (HH:MM).</p>
+                <p className="mt-1 text-[11px] text-muted">
+                  Use the time picker — stored as 24-hour HH:MM for guests and portfolio.
+                </p>
               </div>
             </div>
             <div>
@@ -432,6 +449,80 @@ export function HotelSettingsForms({ settings }: { settings: HotelTenantSettings
                 placeholder="Cancellation summary, pet policy, quiet hours — visible to your administrators here."
                 rows={5}
               />
+            </div>
+
+            <div className="rounded-xl border border-border/60 bg-muted/10 p-4 dark:bg-muted/5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted">Public portfolio footer</p>
+              <p className="mt-1 text-[11px] text-muted">
+                Shown on your marketing page at <span className="font-mono text-foreground">/p/{settings.slug}</span>
+              </p>
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label className={labelClass} htmlFor="mailing_address">
+                    Mailing address (multiline)
+                  </label>
+                  <textarea
+                    id="mailing_address"
+                    name="mailing_address"
+                    className={cn(textareaClass, "min-h-[88px]")}
+                    defaultValue={settings.mailing_address ?? ""}
+                    placeholder={"Your Hotel Name\nStreet / City\nPostal code"}
+                    rows={4}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="public_footer_tagline">
+                    Footer subtitle (optional)
+                  </label>
+                  <Input
+                    id="public_footer_tagline"
+                    name="public_footer_tagline"
+                    defaultValue={settings.public_footer_tagline ?? ""}
+                    placeholder="e.g. Hotel Group"
+                  />
+                  <p className="mt-1 text-[11px] text-muted">
+                    Shown under your property name in the footer. If empty, region may be used.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <label className={labelClass} htmlFor="social_linkedin_url">
+                      LinkedIn URL
+                    </label>
+                    <Input
+                      id="social_linkedin_url"
+                      name="social_linkedin_url"
+                      type="url"
+                      defaultValue={settings.social_linkedin_url ?? ""}
+                      placeholder="https://linkedin.com/…"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass} htmlFor="social_instagram_url">
+                      Instagram URL
+                    </label>
+                    <Input
+                      id="social_instagram_url"
+                      name="social_instagram_url"
+                      type="url"
+                      defaultValue={settings.social_instagram_url ?? ""}
+                      placeholder="https://instagram.com/…"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass} htmlFor="social_facebook_url">
+                      Facebook URL
+                    </label>
+                    <Input
+                      id="social_facebook_url"
+                      name="social_facebook_url"
+                      type="url"
+                      defaultValue={settings.social_facebook_url ?? ""}
+                      placeholder="https://facebook.com/…"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
               <Button

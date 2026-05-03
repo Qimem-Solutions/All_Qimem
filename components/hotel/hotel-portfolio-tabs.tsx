@@ -9,26 +9,32 @@ import {
   type SVGProps,
 } from "react";
 import { createPortal } from "react-dom";
-import { Briefcase, Home, Loader2, MessageSquare, Send } from "lucide-react";
+import { Briefcase, Home, Loader2, Mail, MapPin, MessageSquare, Phone, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { HotelPropertyGalleryCarousel } from "@/components/hotel/hotel-property-gallery-carousel";
-import { submitRecruitmentApplicationAction } from "@/lib/actions/hrms-modules";
+import { submitRecruitmentApplicationAction, submitPublicJobApplicationAction } from "@/lib/actions/hrms-modules";
 import type { JobRequisitionRow } from "@/lib/queries/hrms-extended";
 import { formatDate } from "@/lib/format";
 
-function PortfolioApplyModalPortal({
+export function PortfolioApplyModalPortal({
   tenantId,
   job,
   onClose,
+  applicationAction = submitRecruitmentApplicationAction,
+  portfolioSlug,
 }: {
   tenantId: string;
   job: JobRequisitionRow;
   onClose: () => void;
+  applicationAction?:
+    | typeof submitRecruitmentApplicationAction
+    | typeof submitPublicJobApplicationAction;
+  portfolioSlug?: string | null;
 }) {
-  const [applyState, applyAction, applyPending] = useActionState(submitRecruitmentApplicationAction, null);
+  const [applyState, applyAction, applyPending] = useActionState(applicationAction, null);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -86,6 +92,7 @@ function PortfolioApplyModalPortal({
           <form action={applyAction} className="mt-6 space-y-4">
             <input type="hidden" name="tenantId" value={tenantId} />
             <input type="hidden" name="requisitionId" value={job.id} />
+            {portfolioSlug ? <input type="hidden" name="portfolioSlug" value={portfolioSlug} /> : null}
             <div>
               <label className="mb-1 block text-xs font-medium text-muted" htmlFor="pf-fullName">
                 Full name
@@ -204,8 +211,15 @@ function SocialGlyphTwitter(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function PortfolioContactPanel({ contact }: { contact: PortfolioContactInfo }) {
+export function PortfolioContactPanel({
+  contact,
+  variant = "default",
+}: {
+  contact: PortfolioContactInfo;
+  variant?: "default" | "portfolio";
+}) {
   const destinationEmail = contact.email?.trim() ?? "";
+  const phoneRaw = contact.phone?.trim() ?? "";
   const basedIn =
     contact.region?.trim() || contact.propertyName?.trim() || "—";
 
@@ -214,11 +228,17 @@ function PortfolioContactPanel({ contact }: { contact: PortfolioContactInfo }) {
   const [message, setMessage] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
+  const isPortfolio = variant === "portfolio";
+
   const submitViaMailto = (e: FormEvent) => {
     e.preventDefault();
     setFormError(null);
     if (!destinationEmail) {
-      setFormError("Add a reservations email under Property settings → Contact & policies.");
+      setFormError(
+        isPortfolio
+          ? "This property has not published a reservations email yet."
+          : "Add a reservations email under Property settings → Contact & policies.",
+      );
       return;
     }
     if (!fullName.trim()) {
@@ -236,21 +256,58 @@ function PortfolioContactPanel({ contact }: { contact: PortfolioContactInfo }) {
     window.location.href = `mailto:${destinationEmail}?subject=${subject}&body=${body}`;
   };
 
-  const underline =
-    "w-full border-0 border-b-2 border-border bg-transparent py-2 text-base text-foreground outline-none ring-0 placeholder:text-muted focus-visible:border-gold";
+  const underline = cn(
+    "w-full border-0 border-b-2 bg-transparent py-2 outline-none ring-0 transition-colors",
+    isPortfolio
+      ? "border-white/15 py-2.5 text-sm text-white placeholder:text-zinc-600 focus-visible:border-gold"
+      : "border-border py-2 text-base text-foreground placeholder:text-muted focus-visible:border-gold",
+  );
+
+  const labelClass = isPortfolio
+    ? "block text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500"
+    : "block text-sm font-medium text-foreground";
 
   return (
-    <div className="rounded-2xl px-1 py-6 text-foreground sm:px-2 md:py-10">
-      <h2 className="mb-8 text-4xl font-semibold tracking-tight text-foreground sm:text-5xl md:text-6xl [font-family:var(--font-outfit),system-ui,sans-serif]">
-        Contact Us
-      </h2>
+    <div
+      className={cn(
+        "rounded-2xl text-foreground",
+        isPortfolio ? "py-2" : "px-1 py-6 sm:px-2 md:py-10",
+      )}
+    >
+      {isPortfolio ? (
+        <header className="space-y-2 border-b border-white/10 pb-6">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-gold">Get in touch</p>
+          <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl [font-family:var(--font-outfit),system-ui,sans-serif]">
+            Contact us
+          </h2>
+          <p className="max-w-xl text-sm leading-relaxed text-zinc-500">
+            Send a message using your email app, or reach the property directly using the details below.
+          </p>
+        </header>
+      ) : (
+        <h2 className="mb-8 text-4xl font-semibold tracking-tight text-foreground sm:text-5xl md:text-6xl [font-family:var(--font-outfit),system-ui,sans-serif]">
+          Contact Us
+        </h2>
+      )}
 
-      <div className="relative rounded-2xl border border-border bg-surface-elevated/40 p-6 sm:p-10 md:p-12">
-        <div className="grid gap-12 md:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] md:gap-14 lg:gap-20">
-          <form onSubmit={submitViaMailto} className="space-y-8">
+      <div
+        className={cn(
+          "relative rounded-2xl border p-6 sm:p-10 md:p-12",
+          isPortfolio
+            ? "mt-8 border-white/10 bg-white/[0.03] shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset]"
+            : "border-border bg-surface-elevated/40",
+        )}
+      >
+        <div
+          className={cn(
+            "grid gap-12 md:gap-14 lg:gap-20",
+            isPortfolio ? "md:grid-cols-[minmax(0,1fr)_minmax(0,280px)]" : "md:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]",
+          )}
+        >
+          <form onSubmit={submitViaMailto} className={cn("space-y-8", isPortfolio && "space-y-7")}>
             <div>
-              <label htmlFor="pc-full-name" className="block text-sm font-medium text-foreground">
-                Full Name
+              <label htmlFor="pc-full-name" className={labelClass}>
+                {isPortfolio ? "Full name" : "Full Name"}
               </label>
               <input
                 id="pc-full-name"
@@ -262,8 +319,8 @@ function PortfolioContactPanel({ contact }: { contact: PortfolioContactInfo }) {
               />
             </div>
             <div>
-              <label htmlFor="pc-email" className="block text-sm font-medium text-foreground">
-                E-mail
+              <label htmlFor="pc-email" className={labelClass}>
+                {isPortfolio ? "Your email" : "E-mail"}
               </label>
               <input
                 id="pc-email"
@@ -276,21 +333,27 @@ function PortfolioContactPanel({ contact }: { contact: PortfolioContactInfo }) {
               />
             </div>
             <div>
-              <label htmlFor="pc-message" className="block text-sm font-medium text-foreground">
+              <label htmlFor="pc-message" className={labelClass}>
                 Message
               </label>
               <textarea
                 id="pc-message"
                 name="message"
-                rows={4}
+                rows={isPortfolio ? 5 : 4}
                 value={message}
                 onChange={(ev) => setMessage(ev.target.value)}
-                className={`${underline} resize-none`}
+                className={cn(underline, "resize-none")}
               />
             </div>
 
             {formError ? (
-              <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+              <p
+                className={cn(
+                  "text-sm",
+                  isPortfolio ? "text-red-300" : "text-red-600 dark:text-red-400",
+                )}
+                role="alert"
+              >
                 {formError}
               </p>
             ) : null}
@@ -298,44 +361,124 @@ function PortfolioContactPanel({ contact }: { contact: PortfolioContactInfo }) {
             <Button
               type="submit"
               variant="primary"
-              className="h-auto rounded-full px-10 py-3 text-sm font-medium uppercase tracking-wide"
+              className={cn(
+                "h-auto text-sm font-semibold uppercase tracking-wide",
+                isPortfolio
+                  ? "rounded-xl bg-gold px-8 py-3.5 text-black shadow-lg shadow-gold/15 hover:bg-gold/90"
+                  : "rounded-full px-10 py-3 font-medium",
+              )}
             >
-              Contact Us
+              {isPortfolio ? "Send message" : "Contact Us"}
             </Button>
           </form>
 
-          <div className="space-y-10">
-            <div>
-              <p className="text-base font-bold text-foreground">Contact</p>
-              {destinationEmail ? (
-                <a
-                  href={`mailto:${destinationEmail}`}
-                  className="mt-2 inline-block break-all text-base text-foreground underline-offset-4 hover:text-gold hover:underline"
-                >
-                  {destinationEmail}
-                </a>
-              ) : (
-                <p className="mt-2 text-base text-muted">Configure reservations email in settings.</p>
-              )}
+          {isPortfolio ? (
+            <aside className="space-y-6 md:border-l md:border-white/10 md:pl-10 lg:pl-12">
+              <div className="rounded-xl border border-white/10 bg-black/25 p-5 sm:p-6">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                  Reach us
+                </p>
+                <ul className="mt-4 space-y-5">
+                  {phoneRaw ? (
+                    <li>
+                      <a
+                        href={`tel:${phoneRaw.replace(/\s+/g, "")}`}
+                        className="group flex items-start gap-3 text-sm text-zinc-300 transition-colors hover:text-gold"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04]">
+                          <Phone className="h-4 w-4 text-gold/90" strokeWidth={1.75} aria-hidden />
+                        </span>
+                        <span className="min-w-0 pt-1">
+                          <span className="block text-[11px] uppercase tracking-wide text-zinc-600">
+                            Phone
+                          </span>
+                          <span className="mt-0.5 block font-medium text-white">{phoneRaw}</span>
+                        </span>
+                      </a>
+                    </li>
+                  ) : null}
+                  <li>
+                    {destinationEmail ? (
+                      <a
+                        href={`mailto:${destinationEmail}`}
+                        className="group inline-flex items-start gap-3 break-all text-sm text-zinc-300 underline-offset-4 transition-colors hover:text-gold hover:underline"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04]">
+                          <Mail className="h-4 w-4 text-gold/90" strokeWidth={1.75} aria-hidden />
+                        </span>
+                        <span className="min-w-0 pt-1">
+                          <span className="block text-[11px] uppercase tracking-wide text-zinc-600">
+                            Email
+                          </span>
+                          <span className="mt-0.5 block font-medium text-white">{destinationEmail}</span>
+                        </span>
+                      </a>
+                    ) : (
+                      <p className="text-sm text-zinc-500">No email published for this property yet.</p>
+                    )}
+                  </li>
+                </ul>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/15 p-5 sm:p-6">
+                <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                  <MapPin className="h-3.5 w-3.5 text-gold/80" aria-hidden />
+                  Location
+                </p>
+                <p className="mt-3 text-sm leading-relaxed text-zinc-300">{basedIn}</p>
+              </div>
+
+              {contact.policiesNotes?.trim() ? (
+                <div className="rounded-xl border border-gold/20 bg-gold/[0.06] p-5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold/90">
+                    Note from the property
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-400">
+                    {contact.policiesNotes.trim()}
+                  </p>
+                </div>
+              ) : null}
+            </aside>
+          ) : (
+            <div className="space-y-10">
+              <div>
+                <p className="text-base font-bold text-foreground">Contact</p>
+                {destinationEmail ? (
+                  <a
+                    href={`mailto:${destinationEmail}`}
+                    className="mt-2 inline-block break-all text-base text-foreground underline-offset-4 hover:text-gold hover:underline"
+                  >
+                    {destinationEmail}
+                  </a>
+                ) : (
+                  <p className="mt-2 text-base text-muted">Configure reservations email in settings.</p>
+                )}
+              </div>
+              <div>
+                <p className="text-base font-bold text-foreground">Based in</p>
+                <p className="mt-2 text-base font-normal text-foreground">{basedIn}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-base font-bold text-foreground">Based in</p>
-              <p className="mt-2 text-base font-normal text-foreground">{basedIn}</p>
-            </div>
-          </div>
+          )}
         </div>
 
-        <div className="mt-12 flex justify-end gap-6 border-t border-border pt-8 sm:mt-14">
-          <span className="text-muted transition-colors hover:text-gold" title="Facebook">
-            <SocialGlyphFacebook />
-          </span>
-          <span className="text-muted transition-colors hover:text-gold" title="Instagram">
-            <SocialGlyphInstagram />
-          </span>
-          <span className="text-muted transition-colors hover:text-gold" title="X">
-            <SocialGlyphTwitter />
-          </span>
-        </div>
+        {!isPortfolio ? (
+          <div className="mt-12 flex justify-end gap-6 border-t border-border pt-8 sm:mt-14">
+            <span className="text-muted transition-colors hover:text-gold" title="Facebook">
+              <SocialGlyphFacebook />
+            </span>
+            <span className="text-muted transition-colors hover:text-gold" title="Instagram">
+              <SocialGlyphInstagram />
+            </span>
+            <span className="text-muted transition-colors hover:text-gold" title="X">
+              <SocialGlyphTwitter />
+            </span>
+          </div>
+        ) : (
+          <p className="mt-10 border-t border-white/10 pt-6 text-center text-xs text-zinc-600">
+            Prefer social channels? Links are in the footer below.
+          </p>
+        )}
       </div>
     </div>
   );

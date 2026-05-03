@@ -25,8 +25,15 @@ function requireHotelAdmin() {
 function looseTime(s: string) {
   const t = s.trim();
   if (!t) return null;
-  if (!/^\d{1,2}:\d{2}$/.test(t)) return null;
-  return t;
+  // HH:MM or HH:MM:SS from native <input type="time" />
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(t);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  const ss = m[3] != null ? Number(m[3]) : 0;
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || !Number.isFinite(ss)) return null;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59 || ss < 0 || ss > 59) return null;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
 function looseEmail(s: string) {
@@ -34,6 +41,19 @@ function looseEmail(s: string) {
   if (!t) return null;
   if (!t.includes("@") || t.length < 4) return null;
   return t;
+}
+
+function looseHttpUrl(s: string): string | null {
+  const t = s.trim();
+  if (!t) return null;
+  try {
+    const withProto = /^https?:\/\//i.test(t) ? t : `https://${t}`;
+    const u = new URL(withProto);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return u.href;
+  } catch {
+    return null;
+  }
 }
 
 export async function updateHotelGeneralSettings(
@@ -127,6 +147,13 @@ export async function updateHotelContactSettings(
   if (!tenantId) {
     return { ok: false, error: "Not authorized." };
   }
+  const supabase = await createClient();
+  const { data: slugRow } = await supabase
+    .from("tenants")
+    .select("slug")
+    .eq("id", tenantId)
+    .maybeSingle();
+
   const contact_phone = String(formData.get("contact_phone") ?? "").trim() || null;
   const reservationsEmailRaw = String(formData.get("reservations_email") ?? "").trim();
   let reservations_email: string | null = null;
@@ -156,7 +183,33 @@ export async function updateHotelContactSettings(
     default_check_out_time = t;
   }
   const policies_notes = String(formData.get("policies_notes") ?? "").trim() || null;
-  const supabase = await createClient();
+
+  const mailing_address = String(formData.get("mailing_address") ?? "").trim() || null;
+  const public_footer_tagline = String(formData.get("public_footer_tagline") ?? "").trim() || null;
+
+  const linkedInRaw = String(formData.get("social_linkedin_url") ?? "").trim();
+  const instagramRaw = String(formData.get("social_instagram_url") ?? "").trim();
+  const facebookRaw = String(formData.get("social_facebook_url") ?? "").trim();
+
+  let social_linkedin_url: string | null = null;
+  if (linkedInRaw) {
+    const u = looseHttpUrl(linkedInRaw);
+    if (!u) return { ok: false, error: "LinkedIn URL must be a valid http(s) link or domain." };
+    social_linkedin_url = u;
+  }
+  let social_instagram_url: string | null = null;
+  if (instagramRaw) {
+    const u = looseHttpUrl(instagramRaw);
+    if (!u) return { ok: false, error: "Instagram URL must be a valid http(s) link or domain." };
+    social_instagram_url = u;
+  }
+  let social_facebook_url: string | null = null;
+  if (facebookRaw) {
+    const u = looseHttpUrl(facebookRaw);
+    if (!u) return { ok: false, error: "Facebook URL must be a valid http(s) link or domain." };
+    social_facebook_url = u;
+  }
+
   const { error } = await supabase
     .from("tenants")
     .update({
@@ -165,11 +218,20 @@ export async function updateHotelContactSettings(
       default_check_in_time,
       default_check_out_time,
       policies_notes,
+      mailing_address,
+      public_footer_tagline,
+      social_linkedin_url,
+      social_instagram_url,
+      social_facebook_url,
     })
     .eq("id", tenantId);
   if (error) {
     return { ok: false, error: toUserFacingError(error.message) };
   }
   revalidatePath("/hotel/settings");
+  const slug = slugRow?.slug;
+  if (typeof slug === "string" && slug.trim()) {
+    revalidatePath(`/p/${slug.trim()}`);
+  }
   return { ok: true, message: "Contact & policy details saved." };
 }

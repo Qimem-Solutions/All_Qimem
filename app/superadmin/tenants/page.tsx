@@ -19,6 +19,7 @@ import {
 } from "@/lib/queries/superadmin";
 import { formatRelative, tenantDisplayId } from "@/lib/format";
 import { TenantRowActions } from "@/components/superadmin/tenant-row-actions";
+import { TenantPortfolioQrButton } from "@/components/superadmin/tenant-portfolio-qr-button";
 
 function planIcon(plan: string | null) {
   if (!plan) {
@@ -202,11 +203,12 @@ export default async function TenantsManagementPage() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[960px] text-left text-sm">
+            <table className="w-full min-w-[1080px] text-left text-sm">
               <thead>
                 <tr className="border-b border-border text-[10px] uppercase tracking-wider text-zinc-500">
                   <th className="px-6 py-4 font-medium">Hotel name</th>
                   <th className="py-4 font-medium">Slug</th>
+                  <th className="py-4 font-medium whitespace-nowrap">Portfolio QR</th>
                   <th className="py-4 font-medium">Region</th>
                   <th className="py-4 font-medium">Status</th>
                   <th className="py-4 font-medium">Plan</th>
@@ -218,7 +220,7 @@ export default async function TenantsManagementPage() {
               <tbody>
                 {tenants.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-10 text-center text-sm text-zinc-500">
+                    <td colSpan={9} className="px-6 py-10 text-center text-sm text-zinc-500">
                       No tenants yet. Create your first property to see it here.
                     </td>
                   </tr>
@@ -247,6 +249,9 @@ export default async function TenantsManagementPage() {
                         </div>
                       </td>
                       <td className="py-4 font-mono text-xs text-gold">/{row.slug}</td>
+                      <td className="py-4">
+                        <TenantPortfolioQrButton tenantId={row.id} slug={row.slug} />
+                      </td>
                       <td className="py-4 text-zinc-400">{row.region ?? "—"}</td>
                       <td className="py-4">{statusBadge(row)}</td>
                       <td className="py-4 text-zinc-300">{planIcon(row.plan)}</td>

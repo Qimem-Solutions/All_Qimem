@@ -297,8 +297,9 @@ export async function findAvailableRoomForStay(
   roomTypeId: string,
   checkIn: string,
   checkOut: string,
+  supabaseClient?: SupabaseClient,
 ): Promise<{ roomId: string | null; roomNumber: string | null; error: string | null }> {
-  const supabase = await createClient();
+  const supabase = supabaseClient ?? (await createClient());
   const { data: typeRooms, error: trErr } = await supabase
     .from("rooms")
     .select("id, room_number, operational_status")

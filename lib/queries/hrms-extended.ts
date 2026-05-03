@@ -234,6 +234,8 @@ export type HrmsShiftRow = {
   id: string;
   employee_id: string;
   shift_date: string;
+  /** Inclusive end date; when null in DB, equals shift_date. */
+  shift_date_to: string | null;
   start_time: string;
   end_time: string;
   shift_type: string | null;
@@ -250,7 +252,7 @@ export async function fetchHrmsShiftsTable(tenantId: string, limit = 120): Promi
 
   const { data: shifts, error: qErr } = await db
     .from("shifts")
-    .select("id, employee_id, shift_date, start_time, end_time, shift_type")
+    .select("id, employee_id, shift_date, shift_date_to, start_time, end_time, shift_type")
     .eq("tenant_id", tenantId)
     .order("shift_date", { ascending: false })
     .order("start_time", { ascending: true })
@@ -271,12 +273,76 @@ export async function fetchHrmsShiftsTable(tenantId: string, limit = 120): Promi
   }
 
   return {
-    rows: (shifts ?? []).map((s) => ({
-      ...s,
-      employee_label: empMap.get(s.employee_id) ?? "—",
+    rows: (shifts ?? []).map((s) => {
+      const raw = s as typeof s & { shift_date_to?: string | null };
+      return {
+        ...s,
+        shift_date_to: raw.shift_date_to ?? null,
+        employee_label: empMap.get(s.employee_id) ?? "—",
+      };
+    }),
+    error: null,
+  };
+}
+
+/** Active employees with department label — for attendance dashboard / reports. */
+export async function fetchActiveEmployeesWithDept(tenantId: string): Promise<{
+  rows: { id: string; full_name: string; department: string }[];
+  error: string | null;
+}> {
+  const { db, error } = await srOrClient(tenantId);
+  if (error || !db) return { rows: [], error: error ?? "No database client." };
+
+  const { data: emps, error: qErr } = await db
+    .from("employees")
+    .select("id, full_name, department_id")
+    .eq("tenant_id", tenantId)
+    .eq("status", "active")
+    .order("full_name", { ascending: true });
+
+  if (qErr) return { rows: [], error: qErr.message };
+
+  const deptIds = [...new Set((emps ?? []).map((e) => e.department_id).filter(Boolean))] as string[];
+  let deptMap = new Map<string, string>();
+  if (deptIds.length) {
+    const { data: depts } = await db.from("departments").select("id, name").eq("tenant_id", tenantId).in("id", deptIds);
+    deptMap = new Map((depts ?? []).map((d) => [d.id, d.name]));
+  }
+
+  return {
+    rows: (emps ?? []).map((e) => ({
+      id: e.id,
+      full_name: e.full_name,
+      department: e.department_id ? deptMap.get(e.department_id) ?? "—" : "—",
     })),
     error: null,
   };
+}
+
+/** Attendance punches in [rangeStart, rangeEnd] (ISO timestamps), capped for safety. */
+export async function fetchAttendanceLogsRange(
+  tenantId: string,
+  rangeStartIso: string,
+  rangeEndIso: string,
+  limit = 8000,
+): Promise<{
+  rows: { id: string; employee_id: string; punch_type: string; punched_at: string }[];
+  error: string | null;
+}> {
+  const { db, error } = await srOrClient(tenantId);
+  if (error || !db) return { rows: [], error: error ?? "No database client." };
+
+  const { data: logs, error: lErr } = await db
+    .from("attendance_logs")
+    .select("id, employee_id, punch_type, punched_at")
+    .eq("tenant_id", tenantId)
+    .gte("punched_at", rangeStartIso)
+    .lte("punched_at", rangeEndIso)
+    .order("punched_at", { ascending: true })
+    .limit(limit);
+
+  if (lErr) return { rows: [], error: lErr.message };
+  return { rows: logs ?? [], error: null };
 }
 
 export async function fetchEmployeeOptions(tenantId: string): Promise<{

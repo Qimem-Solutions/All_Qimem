@@ -10,12 +10,18 @@ type Props = {
   urls: string[];
   /** Screen reader label for the carousel region */
   label?: string;
+  /** Span full viewport width (no side rounding/border on public portfolio). */
+  edgeToEdge?: boolean;
 };
 
 /**
  * Simple slider for property photos (below “About this property” on the hotel portfolio).
  */
-export function HotelPropertyGalleryCarousel({ urls, label = "Property photos" }: Props) {
+export function HotelPropertyGalleryCarousel({
+  urls,
+  label = "Property photos",
+  edgeToEdge = false,
+}: Props) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
 
@@ -65,7 +71,12 @@ export function HotelPropertyGalleryCarousel({ urls, label = "Property photos" }
 
   return (
     <div
-      className="relative w-full overflow-hidden rounded-xl border border-border bg-surface-elevated/40"
+      className={cn(
+        "relative w-full overflow-hidden",
+        edgeToEdge
+          ? "rounded-2xl border border-white/10 bg-white/[0.03]"
+          : "rounded-xl border border-border bg-surface-elevated/40",
+      )}
       role="region"
       aria-roledescription="carousel"
       aria-label={label}
@@ -103,14 +114,19 @@ export function HotelPropertyGalleryCarousel({ urls, label = "Property photos" }
         ) : null}
       </div>
       {n > 1 ? (
-        <div className="flex flex-wrap items-center justify-center gap-1.5 border-t border-border px-2 py-2.5">
+        <div
+          className={cn(
+            "flex flex-wrap items-center justify-center gap-1.5 border-t px-2 py-2.5",
+            edgeToEdge ? "border-white/10" : "border-border",
+          )}
+        >
           {urls.map((u, i) => (
             <button
               key={u}
               type="button"
               className={cn(
                 "h-2 w-2 shrink-0 rounded-full transition sm:h-2.5 sm:w-2.5",
-                i === safeIndex ? "bg-gold" : "bg-muted hover:bg-muted/80",
+                i === safeIndex ? "bg-gold" : edgeToEdge ? "bg-zinc-600 hover:bg-zinc-500" : "bg-muted hover:bg-muted/80",
               )}
               aria-label={`Go to photo ${i + 1}`}
               aria-current={i === safeIndex ? "true" : undefined}
