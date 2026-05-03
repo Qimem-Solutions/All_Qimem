@@ -179,6 +179,7 @@ export type PayrollLineRow = {
   gross_cents: number;
   deductions_cents: number;
   net_cents: number;
+  deduction_reason: string | null;
   employee_name: string | null;
 };
 
@@ -208,7 +209,7 @@ export async function fetchPayrollLinesForRun(
 
   const { data: lines, error: qErr } = await db
     .from("payroll_lines")
-    .select("id, payroll_run_id, employee_id, gross_cents, deductions_cents, net_cents")
+    .select("id, payroll_run_id, employee_id, gross_cents, deductions_cents, net_cents, deduction_reason")
     .eq("tenant_id", tenantId)
     .eq("payroll_run_id", runId);
 

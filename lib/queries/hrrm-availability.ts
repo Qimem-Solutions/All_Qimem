@@ -13,6 +13,14 @@ export type AvailabilityCell = {
   priceCents: number;
   available: number;
   physical: number;
+  rooms: AvailabilityRoomSnapshot[];
+};
+
+export type AvailabilityRoomSnapshot = {
+  id: string;
+  roomNumber: string;
+  occupied: boolean;
+  reservationStatus: string | null;
 };
 
 export type AvailabilityRow = {
@@ -61,15 +69,14 @@ function dayLabel(iso: string): string {
   return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
 }
 
-/** Room is not counted in sellable inventory. */
-function isRoomSellable(operationalStatus: string | null): boolean {
-  const o = (operationalStatus ?? "available").toLowerCase();
-  return o !== "inactive" && o !== "out_of_order" && o !== "maintenance";
-}
-
 export function isCanceledReservation(status: string | null): boolean {
   const s = (status ?? "").toLowerCase();
   return s === "canceled" || s === "cancelled";
+}
+
+export function isBlockingReservationStatus(status: string | null): boolean {
+  const s = (status ?? "").toLowerCase();
+  return s === "pending" || s === "checked_in";
 }
 
 export function isFinishedReservation(status: string | null): boolean {
@@ -92,6 +99,14 @@ function rangesOverlap(aIn: string, aOut: string, bIn: string, bOut: string): bo
   return aIn < bOut && aOut > bIn;
 }
 
+async function getAvailabilityDb() {
+  try {
+    return createServiceRoleClient();
+  } catch {
+    return await createClient();
+  }
+}
+
 export function enumerateHorizon(startIso: string, dayCount: number): AvailabilityDay[] {
   const out: AvailabilityDay[] = [];
   for (let i = 0; i < dayCount; i++) {
@@ -109,14 +124,14 @@ export async function fetchAvailabilityMatrix(
   startIso: string,
   dayCount: number,
 ): Promise<AvailabilityMatrix> {
-  const supabase = await createClient();
+  const supabase = await getAvailabilityDb();
   const days = enumerateHorizon(startIso, dayCount);
 
   const [typesRes, roomsRes, resRes] = await Promise.all([
     supabase.from("room_types").select("id, name, capacity, price").eq("tenant_id", tenantId).order("name"),
     supabase
       .from("rooms")
-      .select("id, room_type_id, operational_status")
+      .select("id, room_type_id, room_number")
       .eq("tenant_id", tenantId),
     supabase
       .from("reservations")
@@ -143,46 +158,61 @@ export async function fetchAvailabilityMatrix(
 
   const roomTypes = typesRes.data ?? [];
   const rooms = roomsRes.data ?? [];
-  const reservations = (resRes.data ?? []).filter((r) => !isFinishedReservation(r.status));
+  const reservations = (resRes.data ?? []).filter((r) => isBlockingReservationStatus(r.status));
 
-  const roomsByType = new Map<string, { id: string; operational: string | null }[]>();
+  const roomsByType = new Map<string, { id: string; roomNumber: string }[]>();
   for (const r of rooms) {
     const tid = r.room_type_id;
     if (!tid) continue;
     const list = roomsByType.get(tid) ?? [];
-    list.push({ id: r.id, operational: r.operational_status });
+    list.push({ id: r.id, roomNumber: r.room_number });
     roomsByType.set(tid, list);
   }
 
   let totalPhysical = 0;
   for (const [, list] of roomsByType) {
-    totalPhysical += list.filter((x) => isRoomSellable(x.operational)).length;
+    totalPhysical += list.length;
   }
 
-  /** room_id -> room_type_id */
-  const roomTypeById = new Map<string, string>();
-  for (const r of rooms) {
-    if (r.room_type_id) roomTypeById.set(r.id, r.room_type_id);
+  const blockingReservationsByRoomId = new Map<
+    string,
+    { room_id: string | null; check_in: string; check_out: string; status: string | null }[]
+  >();
+  for (const reservation of reservations) {
+    if (!reservation.room_id) continue;
+    const list = blockingReservationsByRoomId.get(reservation.room_id) ?? [];
+    list.push(reservation);
+    blockingReservationsByRoomId.set(reservation.room_id, list);
   }
 
   const rows: AvailabilityRow[] = roomTypes.map((t) => {
     const list = roomsByType.get(t.id) ?? [];
-    const sellableIds = new Set(list.filter((x) => isRoomSellable(x.operational)).map((x) => x.id));
-    const physical = sellableIds.size;
+    const roomIds = new Set(list.map((x) => x.id));
+    const physical = roomIds.size;
     const priceCents = roomTypePriceToCents(t.price);
 
     const cells: AvailabilityCell[] = days.map(({ date: d }) => {
-      let booked = 0;
-      for (const res of reservations) {
-        if (!res.room_id || !sellableIds.has(res.room_id)) continue;
-        if (reservationCoversDate(res.check_in, res.check_out, d)) booked += 1;
-      }
+      const roomSnapshots = list
+        .map((room) => {
+          const matchingReservation = (blockingReservationsByRoomId.get(room.id) ?? []).find((reservation) =>
+            reservationCoversDate(reservation.check_in, reservation.check_out, d),
+          );
+          return {
+            id: room.id,
+            roomNumber: room.roomNumber,
+            occupied: Boolean(matchingReservation),
+            reservationStatus: matchingReservation?.status ?? null,
+          };
+        })
+        .sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: "base" }));
+      const booked = roomSnapshots.filter((room) => room.occupied).length;
       const available = Math.max(0, physical - booked);
       return {
         date: d,
         priceCents,
         available,
         physical,
+        rooms: roomSnapshots,
       };
     });
 
@@ -200,9 +230,6 @@ export async function fetchAvailabilityMatrix(
     let bookedAll = 0;
     for (const res of reservations) {
       if (!res.room_id) continue;
-      const rid = res.room_id as string;
-      const op = rooms.find((x) => x.id === rid)?.operational_status ?? null;
-      if (!isRoomSellable(op)) continue;
       if (reservationCoversDate(res.check_in, res.check_out, d)) bookedAll += 1;
     }
     return Math.min(1, bookedAll / totalPhysical);
@@ -290,7 +317,7 @@ export async function searchGuestsForTenant(
   return { rows: [...map.values()].slice(0, limit), error: null };
 }
 
-export { rangesOverlap, reservationCoversDate, isRoomSellable };
+export { rangesOverlap, reservationCoversDate };
 
 export async function findAvailableRoomForStay(
   tenantId: string,
@@ -299,19 +326,19 @@ export async function findAvailableRoomForStay(
   checkOut: string,
   supabaseClient?: SupabaseClient,
 ): Promise<{ roomId: string | null; roomNumber: string | null; error: string | null }> {
-  const supabase = supabaseClient ?? (await createClient());
+  const supabase = supabaseClient ?? (await getAvailabilityDb());
   const { data: typeRooms, error: trErr } = await supabase
     .from("rooms")
-    .select("id, room_number, operational_status")
+    .select("id, room_number")
     .eq("tenant_id", tenantId)
     .eq("room_type_id", roomTypeId)
     .order("room_number");
 
   if (trErr) return { roomId: null, roomNumber: null, error: trErr.message };
 
-  const sellable = (typeRooms ?? []).filter((r) => isRoomSellable(r.operational_status));
-  if (sellable.length === 0) {
-    return { roomId: null, roomNumber: null, error: "No sellable rooms for this type." };
+  const rooms = typeRooms ?? [];
+  if (rooms.length === 0) {
+    return { roomId: null, roomNumber: null, error: "No rooms found for this type." };
   }
 
   const { data: resList, error: rErr } = await supabase
@@ -322,9 +349,9 @@ export async function findAvailableRoomForStay(
 
   if (rErr) return { roomId: null, roomNumber: null, error: rErr.message };
 
-  const blocking = (resList ?? []).filter((r) => !isFinishedReservation(r.status));
+  const blocking = (resList ?? []).filter((r) => isBlockingReservationStatus(r.status));
 
-  for (const room of sellable) {
+  for (const room of rooms) {
     let free = true;
     for (const r of blocking) {
       if (r.room_id !== room.id) continue;
@@ -351,12 +378,12 @@ export async function listAvailableRoomsForStay(
     return { rows: [], error: "Check-out must be after check-in." };
   }
 
-  const supabase = await createClient();
+  const supabase = await getAvailabilityDb();
   const [typesRes, roomsRes, resRes] = await Promise.all([
     supabase.from("room_types").select("id, name, price").eq("tenant_id", tenantId),
     supabase
       .from("rooms")
-      .select("id, room_number, room_type_id, operational_status")
+      .select("id, room_number, room_type_id")
       .eq("tenant_id", tenantId)
       .order("room_number"),
     supabase
@@ -381,11 +408,10 @@ export async function listAvailableRoomsForStay(
   }
 
   const blockingRoomIds = new Set(
-    (resRes.data ?? []).filter((r) => !isFinishedReservation(r.status)).map((r) => r.room_id as string),
+    (resRes.data ?? []).filter((r) => isBlockingReservationStatus(r.status)).map((r) => r.room_id as string),
   );
 
   const rows: AvailableRoomForStay[] = (roomsRes.data ?? [])
-    .filter((room) => isRoomSellable(room.operational_status))
     .filter((room) => !blockingRoomIds.has(room.id))
     .map((room) => {
       const typeMeta = room.room_type_id ? typeMetaById.get(room.room_type_id) ?? null : null;
@@ -404,10 +430,10 @@ export async function listAvailableRoomsForStay(
   return { rows, error: null };
 }
 
-type RoomPick = { id: string; operational_status: string | null; tenant_id: string };
+type RoomPick = { id: string; tenant_id: string };
 
 /**
- * True when this room is sellable and has no non-canceled stay overlapping [checkIn, checkOut).
+ * True when this room exists for the tenant and has no active stay overlapping [checkIn, checkOut).
  * Use `excludeReservationId` when updating an existing reservation’s dates.
  */
 export async function isRoomAvailableForStay(
@@ -420,7 +446,7 @@ export async function isRoomAvailableForStay(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { data: room, error: rErr } = await supabase
     .from("rooms")
-    .select("id, operational_status, tenant_id")
+    .select("id, tenant_id")
     .eq("id", roomId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
@@ -428,9 +454,6 @@ export async function isRoomAvailableForStay(
   if (rErr) return { ok: false, error: rErr.message };
   const r = room as RoomPick | null;
   if (!r) return { ok: false, error: "Room not found for this property." };
-  if (!isRoomSellable(r.operational_status)) {
-    return { ok: false, error: "This room is not available to sell (out of order or inactive)." };
-  }
 
   const { data: resList, error: resErr } = await supabase
     .from("reservations")
@@ -441,7 +464,7 @@ export async function isRoomAvailableForStay(
   if (resErr) return { ok: false, error: resErr.message };
 
   const blocking = (resList ?? [])
-    .filter((x) => !isFinishedReservation(x.status))
+    .filter((x) => isBlockingReservationStatus(x.status))
     .filter((x) => (opts?.excludeReservationId ? x.id !== opts.excludeReservationId : true));
   for (const b of blocking) {
     if (rangesOverlap(checkIn, checkOut, b.check_in, b.check_out)) {

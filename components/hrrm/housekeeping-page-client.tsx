@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { setRoomHousekeepingStatusAction } from "@/lib/actions/hrrm-inventory";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { cn } from "@/lib/utils";
 import { BedDouble, BrushCleaning, CheckCheck, Search, Sparkles } from "lucide-react";
 
@@ -53,22 +54,36 @@ export function HousekeepingPageClient({ rooms, canManage, totals }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "dirty" | "clean">("all");
+  const [operationalFilter, setOperationalFilter] = useState<"all" | "available" | "occupied" | "out_of_order" | "maintenance">("all");
   const [pendingRoomId, setPendingRoomId] = useState<string | null>(null);
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(9);
 
   const visibleRooms = useMemo(() => {
     const term = query.trim().toLowerCase();
     return rooms.filter((room) => {
+      if ((room.operational_status ?? "").toLowerCase() === "inactive") return false;
       const housekeeping = (room.housekeeping_status ?? "clean").toLowerCase();
       if (filter !== "all" && housekeeping !== filter) return false;
+      const op = (room.operational_status ?? "available").toLowerCase();
+      if (operationalFilter !== "all" && op !== operationalFilter) return false;
       if (!term) return true;
       const blob = [room.room_number, room.floor ?? "", room.building ?? "", room.room_type_name ?? "", housekeeping, room.operational_status ?? ""]
         .join(" ")
         .toLowerCase();
       return blob.includes(term);
     });
-  }, [filter, query, rooms]);
+  }, [filter, operationalFilter, query, rooms]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleRooms.length / pageSize));
+  const pageSafe = Math.min(Math.max(1, page), totalPages);
+  const offset = (pageSafe - 1) * pageSize;
+  const pagedRooms = useMemo(
+    () => visibleRooms.slice(offset, offset + pageSize),
+    [visibleRooms, offset, pageSize],
+  );
 
   function updateHousekeeping(roomId: string, nextStatus: "clean" | "dirty") {
     if (!canManage) return;
@@ -134,7 +149,15 @@ export function HousekeepingPageClient({ rooms, canManage, totals }: Props) {
             <div className="flex flex-col gap-3 sm:flex-row">
               <div className="relative min-w-[260px]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                <Input className="pl-10" placeholder="Search room, floor, or type..." value={query} onChange={(e) => setQuery(e.target.value)} />
+                <Input
+                  className="pl-10"
+                  placeholder="Search room, floor, or type..."
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setPage(1);
+                  }}
+                />
               </div>
               <div className="flex gap-2">
                 {(["all", "dirty", "clean"] as const).map((option) => (
@@ -146,12 +169,30 @@ export function HousekeepingPageClient({ rooms, canManage, totals }: Props) {
                       "capitalize",
                       filter === option && "border-gold/40 bg-gold/15 text-gold hover:bg-gold/20",
                     )}
-                    onClick={() => setFilter(option)}
+                    onClick={() => {
+                      setFilter(option);
+                      setPage(1);
+                    }}
                   >
                     {option}
                   </Button>
                 ))}
               </div>
+              <select
+                className="h-10 min-w-[11rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
+                value={operationalFilter}
+                onChange={(e) => {
+                  setOperationalFilter(e.target.value as "all" | "available" | "occupied" | "out_of_order" | "maintenance");
+                  setPage(1);
+                }}
+                aria-label="Filter rooms by operational status"
+              >
+                <option value="all">All operational states</option>
+                <option value="available">Available</option>
+                <option value="occupied">Occupied</option>
+                <option value="out_of_order">Out of order</option>
+                <option value="maintenance">Maintenance</option>
+              </select>
             </div>
           </div>
         </CardHeader>
@@ -168,8 +209,9 @@ export function HousekeepingPageClient({ rooms, canManage, totals }: Props) {
           {visibleRooms.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted">No rooms match this filter.</div>
           ) : (
+            <>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {visibleRooms.map((room) => {
+              {pagedRooms.map((room) => {
                 const busy = isPending && pendingRoomId === room.id;
                 return (
                   <div key={room.id} className="rounded-xl border border-border bg-muted/10 p-5">
@@ -227,6 +269,20 @@ export function HousekeepingPageClient({ rooms, canManage, totals }: Props) {
                 );
               })}
             </div>
+            <ListPagination
+              itemLabel="rooms"
+              totalItems={rooms.filter((room) => (room.operational_status ?? "").toLowerCase() !== "inactive").length}
+              filteredItems={visibleRooms.length}
+              page={pageSafe}
+              pageSize={pageSize}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              onPageSizeChange={(next) => {
+                setPageSize(next);
+                setPage(1);
+              }}
+            />
+            </>
           )}
         </CardContent>
       </Card>

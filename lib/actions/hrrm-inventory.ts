@@ -137,8 +137,6 @@ export async function deleteRoomTypeAction(id: string): Promise<Ok> {
 
 const HK = ["clean", "dirty"] as const;
 const OP = [
-  "available",
-  "occupied",
   "out_of_order",
   "maintenance",
   "inactive",
@@ -150,7 +148,7 @@ function normalizeHk(s: string) {
 }
 function normalizeOp(s: string) {
   const x = s.trim().toLowerCase();
-  return (OP as readonly string[]).includes(x) ? x : "available";
+  return (OP as readonly string[]).includes(x) ? x : null;
 }
 
 export async function createRoomAction(input: {
@@ -174,14 +172,15 @@ export async function createRoomAction(input: {
       .maybeSingle();
     if (!t) return { ok: false, error: "Invalid room type." };
   }
+  const operationalStatus = normalizeOp(input.operationalStatus);
   const { error } = await g.supabase.from("rooms").insert({
     tenant_id: g.tenantId,
     room_number: num,
     room_type_id: input.roomTypeId,
     floor: input.floor?.trim() || null,
     building: input.building?.trim() || null,
-    housekeeping_status: normalizeHk(input.housekeepingStatus),
-    operational_status: normalizeOp(input.operationalStatus),
+    housekeeping_status: operationalStatus === "inactive" ? null : normalizeHk(input.housekeepingStatus),
+    operational_status: operationalStatus,
   });
   if (error) {
     if (error.message.includes("unique") || error.message.includes("duplicate")) {
@@ -223,6 +222,7 @@ export async function updateRoomAction(input: {
   if (rs || !room || room.tenant_id !== g.tenantId) {
     return { ok: false, error: "Room not found." };
   }
+  const operationalStatus = normalizeOp(input.operationalStatus);
   const { error } = await g.supabase
     .from("rooms")
     .update({
@@ -230,8 +230,8 @@ export async function updateRoomAction(input: {
       room_type_id: input.roomTypeId,
       floor: input.floor?.trim() || null,
       building: input.building?.trim() || null,
-      housekeeping_status: normalizeHk(input.housekeepingStatus),
-      operational_status: normalizeOp(input.operationalStatus),
+      housekeeping_status: operationalStatus === "inactive" ? null : normalizeHk(input.housekeepingStatus),
+      operational_status: operationalStatus,
     })
     .eq("id", input.id)
     .eq("tenant_id", g.tenantId);
@@ -290,21 +290,28 @@ export async function setRoomHousekeepingStatusAction(input: { id: string; house
 
 async function updateRoomFieldPartial(input: {
   id: string;
-  patch: { operational_status?: string; housekeeping_status?: string };
+  patch: { operational_status?: string | null; housekeeping_status?: string | null };
 }): Promise<Ok> {
   const g = await requireHrrmManage();
   if (!g.ok) return g;
   const { data: room, error: rErr } = await g.supabase
     .from("rooms")
-    .select("id, tenant_id")
+    .select("id, tenant_id, operational_status")
     .eq("id", input.id)
     .maybeSingle();
   if (rErr || !room || room.tenant_id !== g.tenantId) {
     return { ok: false, error: "Room not found." };
   }
+  if (input.patch.housekeeping_status && (room.operational_status ?? "").toLowerCase() === "inactive") {
+    return { ok: false, error: "Inactive rooms do not have a housekeeping status. Activate the room first." };
+  }
+  const patch = { ...input.patch };
+  if ((patch.operational_status ?? "").toLowerCase() === "inactive") {
+    patch.housekeeping_status = null;
+  }
   const { error } = await g.supabase
     .from("rooms")
-    .update(input.patch)
+    .update(patch)
     .eq("id", input.id)
     .eq("tenant_id", g.tenantId);
   if (error) return { ok: false, error: error.message };

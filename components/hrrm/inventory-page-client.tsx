@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BedDouble,
   CheckCircle2,
@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { formatMoneyCents } from "@/lib/format";
 import { getFloatingMenuStyle } from "@/components/hotel/floating-menu-position";
 import type { RoomInventoryRow, RoomTypeRow } from "@/lib/queries/hrrm-inventory";
@@ -42,23 +43,30 @@ const HK_OPTIONS = [
   { value: "dirty", label: "Dirty" },
 ] as const;
 const OP_OPTIONS = [
-  { value: "available", label: "Available" },
-  { value: "occupied", label: "Occupied" },
+  { value: "", label: "Normal" },
   { value: "out_of_order", label: "Out of order" },
   { value: "maintenance", label: "Maintenance" },
   { value: "inactive", label: "Inactive" },
 ] as const;
 
 function operationalOnlyLabel(op: string | null) {
-  const o = (op ?? "available").toLowerCase();
+  const o = (op ?? "").toLowerCase();
   const hit = OP_OPTIONS.find((x) => x.value === o);
-  return hit?.label ?? op ?? "—";
+  return hit?.label ?? op ?? "Normal";
+}
+
+function occupancyLabel(status: "available" | "occupied") {
+  return status === "occupied" ? "Occupied" : "Available";
 }
 
 function hkValueForSelect(hk: string | null) {
   const h = (hk ?? "clean").toLowerCase();
   if (HK_OPTIONS.some((o) => o.value === h)) return h;
   return "clean";
+}
+
+function isInactiveRoom(op: string | null) {
+  return (op ?? "").toLowerCase() === "inactive";
 }
 
 function formatRoomTypePrice(price: number | null) {
@@ -99,12 +107,14 @@ function RoomStatusStat({
 function HousekeepingSelect({
   roomId,
   value,
+  operationalStatus,
   canManage,
   onUpdated,
   compact,
 }: {
   roomId: string;
   value: string | null;
+  operationalStatus: string | null;
   canManage: boolean;
   onUpdated: () => void;
   /** Table row: single-line control without extra label block */
@@ -113,6 +123,19 @@ function HousekeepingSelect({
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const v = hkValueForSelect(value);
+  const inactive = isInactiveRoom(operationalStatus);
+
+  if (inactive) {
+    if (compact) {
+      return <span className="text-muted">Inactive</span>;
+    }
+    return (
+      <div className="mt-3">
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">Housekeeping</p>
+        <p className="text-sm text-muted">Inactive rooms are excluded from housekeeping.</p>
+      </div>
+    );
+  }
 
   if (!canManage) {
     const label = HK_OPTIONS.find((x) => x.value === v)?.label ?? (value || "—");
@@ -182,10 +205,9 @@ function statusDotClass(hk: string | null, op: string | null) {
   const o = (op ?? "").toLowerCase();
   if (o === "out_of_order" || o === "maintenance") return "bg-red-500";
   if (o === "inactive") return "bg-zinc-500";
-  if (o === "occupied") return "bg-amber-500";
   const h = (hk ?? "clean").toLowerCase();
   if (h === "dirty") return "bg-gold";
-  return "bg-emerald-500";
+  return "bg-sky-500";
 }
 
 type TabId = "rooms" | "types";
@@ -195,13 +217,19 @@ export function HrrmInventoryPageClient({
   initialRoomTypes,
   loadError,
   canManage,
+  occupancyDate,
+  todayIso,
 }: {
   initialRooms: RoomInventoryRow[];
   initialRoomTypes: RoomTypeRow[];
   loadError: string | null;
   canManage: boolean;
+  occupancyDate: string;
+  todayIso: string;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<TabId>("rooms");
   const [rooms, setRooms] = useState(initialRooms);
   const [roomTypes, setRoomTypes] = useState(initialRoomTypes);
@@ -209,6 +237,19 @@ export function HrrmInventoryPageClient({
   const [search, setSearch] = useState("");
   const [floorQ, setFloorQ] = useState("");
   const [buildingQ, setBuildingQ] = useState("all");
+  const [roomPage, setRoomPage] = useState(1);
+  const [roomPageSize, setRoomPageSize] = useState(12);
+  const showCleanliness = occupancyDate === todayIso;
+
+  const setOccupancyDate = useCallback(
+    (nextDate: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (nextDate) params.set("date", nextDate);
+      else params.delete("date");
+      router.push(`${pathname}?${params.toString()}`);
+    },
+    [pathname, router, searchParams],
+  );
 
   useEffect(() => {
     setRooms(initialRooms);
@@ -239,7 +280,15 @@ export function HrrmInventoryPageClient({
       if (buildingQ !== "all" && (r.building?.trim() || "") !== buildingQ) return false;
       if (floorQ && (r.floor?.trim() || "") !== floorQ) return false;
       if (!q) return true;
-      const blob = [r.room_number, r.floor, r.building, r.room_type_name, r.operational_status, r.housekeeping_status]
+      const blob = [
+        r.room_number,
+        r.floor,
+        r.building,
+        r.room_type_name,
+        r.operational_status,
+        r.housekeeping_status,
+        r.current_occupancy_status,
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -247,17 +296,30 @@ export function HrrmInventoryPageClient({
     });
   }, [rooms, search, floorQ, buildingQ]);
 
+  const roomTotalPages = Math.max(1, Math.ceil(filtered.length / roomPageSize));
+  const roomPageSafe = Math.min(Math.max(1, roomPage), roomTotalPages);
+  const roomOffset = (roomPageSafe - 1) * roomPageSize;
+  const pagedRooms = useMemo(
+    () => filtered.slice(roomOffset, roomOffset + roomPageSize),
+    [filtered, roomOffset, roomPageSize],
+  );
+
   const hkCounts: Record<string, number> = {};
   let available = 0;
   let ooo = 0;
   let occ = 0;
-  for (const r of rooms) {
-    const h = (r.housekeeping_status ?? "unknown").toLowerCase();
-    hkCounts[h] = (hkCounts[h] ?? 0) + 1;
+  for (const r of filtered) {
+    if (isInactiveRoom(r.operational_status)) {
+      continue;
+    }
+    if (showCleanliness) {
+      const h = (r.housekeeping_status ?? "unknown").toLowerCase();
+      hkCounts[h] = (hkCounts[h] ?? 0) + 1;
+    }
     const o = (r.operational_status ?? "").toLowerCase();
-    if (o === "available") available += 1;
+    if (r.current_occupancy_status === "available") available += 1;
     if (o === "out_of_order" || o === "maintenance") ooo += 1;
-    if (o === "occupied") occ += 1;
+    if (r.current_occupancy_status === "occupied") occ += 1;
   }
 
   const exportCsv = useCallback(() => {
@@ -303,6 +365,15 @@ export function HrrmInventoryPageClient({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col">
+            <label className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted">Occupancy date</label>
+            <Input
+              className="mt-1 min-w-[10rem]"
+              type="date"
+              value={occupancyDate}
+              onChange={(e) => setOccupancyDate(e.target.value)}
+            />
+          </div>
           <div className="flex rounded-lg border border-border p-0.5">
             <button
               type="button"
@@ -349,12 +420,18 @@ export function HrrmInventoryPageClient({
                 placeholder="Search room, type, or floor…"
                 className="max-w-md flex-1"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setRoomPage(1);
+                }}
               />
               <select
                 className="flex h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
                 value={floorQ}
-                onChange={(e) => setFloorQ(e.target.value)}
+                onChange={(e) => {
+                  setFloorQ(e.target.value);
+                  setRoomPage(1);
+                }}
               >
                 <option value="">All floors</option>
                 {floors.map((f) => (
@@ -366,7 +443,10 @@ export function HrrmInventoryPageClient({
               <select
                 className="flex h-10 min-w-[9rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
                 value={buildingQ}
-                onChange={(e) => setBuildingQ(e.target.value)}
+                onChange={(e) => {
+                  setBuildingQ(e.target.value);
+                  setRoomPage(1);
+                }}
               >
                 <option value="all">All buildings</option>
                 {buildings.map((b) => (
@@ -380,7 +460,10 @@ export function HrrmInventoryPageClient({
               <div className="flex rounded-lg border border-border p-0.5">
                 <button
                   type="button"
-                  onClick={() => setView("grid")}
+                  onClick={() => {
+                    setView("grid");
+                    setRoomPage(1);
+                  }}
                   className={cn(
                     "inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium",
                     view === "grid" ? "bg-gold text-gold-foreground" : "text-muted",
@@ -390,7 +473,10 @@ export function HrrmInventoryPageClient({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setView("list")}
+                  onClick={() => {
+                    setView("list");
+                    setRoomPage(1);
+                  }}
                   className={cn(
                     "inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium",
                     view === "list" ? "bg-gold text-gold-foreground" : "text-muted",
@@ -407,16 +493,34 @@ export function HrrmInventoryPageClient({
 
           <RoomsPanel
             view={view}
-            rooms={filtered}
+            rooms={pagedRooms}
             allCount={rooms.length}
+            filteredCount={filtered.length}
             roomTypes={roomTypes}
             canManage={canManage}
             onRefresh={() => router.refresh()}
             statusDotClass={statusDotClass}
+            showCleanliness={showCleanliness}
             hkCounts={hkCounts}
             available={available}
             ooo={ooo}
             occ={occ}
+            pagination={
+              <ListPagination
+                itemLabel="rooms"
+                totalItems={rooms.length}
+                filteredItems={filtered.length}
+                page={roomPageSafe}
+                pageSize={roomPageSize}
+                totalPages={roomTotalPages}
+                onPageChange={setRoomPage}
+                onPageSizeChange={(next) => {
+                  setRoomPageSize(next);
+                  setRoomPage(1);
+                }}
+                pageSizeOptions={[5, 10, 20, 50]}
+              />
+            }
           />
         </>
       )}
@@ -437,6 +541,9 @@ function RoomTypesPanel({
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<RoomTypeRow | null>(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [name, setName] = useState("");
   const [cap, setCap] = useState("");
   const [price, setPrice] = useState("");
@@ -519,6 +626,25 @@ function RoomTypesPanel({
     setDeleteConfirmErr(null);
   }
 
+  const filteredRoomTypes = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return roomTypes;
+    return roomTypes.filter((type) => {
+      const blob = [type.name, String(type.capacity ?? ""), String(type.price ?? "")]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [roomTypes, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRoomTypes.length / pageSize));
+  const pageSafe = Math.min(Math.max(1, page), totalPages);
+  const offset = (pageSafe - 1) * pageSize;
+  const pagedRoomTypes = useMemo(
+    () => filteredRoomTypes.slice(offset, offset + pageSize),
+    [filteredRoomTypes, offset, pageSize],
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -528,6 +654,17 @@ function RoomTypesPanel({
             <Plus className="h-4 w-4" /> Add room type
           </Button>
         ) : null}
+      </div>
+      <div className="flex w-full max-w-md">
+        <Input
+          placeholder="Search room type, capacity, or price…"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+          aria-label="Search room types"
+        />
       </div>
       {err && !open ? <p className="text-sm text-red-400">{err}</p> : null}
       <div className="overflow-x-auto rounded-xl border border-border">
@@ -541,14 +678,16 @@ function RoomTypesPanel({
             </tr>
           </thead>
           <tbody>
-            {roomTypes.length === 0 ? (
+            {filteredRoomTypes.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-4 py-8 text-center text-muted">
-                  No room types yet. {canManage ? "Add one, then add rooms in the other tab." : ""}
+                  {roomTypes.length === 0
+                    ? `No room types yet. ${canManage ? "Add one, then add rooms in the other tab." : ""}`
+                    : "No room types match your search."}
                 </td>
               </tr>
             ) : (
-              roomTypes.map((t) => (
+              pagedRoomTypes.map((t) => (
                 <tr key={t.id} className="border-b border-border/60">
                   <td className="px-4 py-3 font-medium text-foreground">{t.name}</td>
                   <td className="px-4 py-3 text-muted">{formatRoomTypePrice(t.price)}</td>
@@ -579,6 +718,19 @@ function RoomTypesPanel({
           </tbody>
         </table>
       </div>
+      <ListPagination
+        itemLabel="room types"
+        totalItems={roomTypes.length}
+        filteredItems={filteredRoomTypes.length}
+        page={pageSafe}
+        pageSize={pageSize}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        onPageSizeChange={(next) => {
+          setPageSize(next);
+          setPage(1);
+        }}
+      />
 
       {open && canManage
         ? createPortal(
@@ -649,29 +801,35 @@ function RoomsPanel({
   view,
   rooms,
   allCount,
+  filteredCount,
   roomTypes,
   canManage,
   onRefresh,
   statusDotClass,
+  showCleanliness,
   hkCounts,
   available,
   ooo,
   occ,
+  pagination,
 }: {
   view: "grid" | "list";
   rooms: RoomInventoryRow[];
   allCount: number;
+  filteredCount: number;
   roomTypes: RoomTypeRow[];
   canManage: boolean;
   onRefresh: () => void;
   statusDotClass: (h: string | null, o: string | null) => string;
+  showCleanliness: boolean;
   hkCounts: Record<string, number>;
   available: number;
   ooo: number;
   occ: number;
+  pagination: ReactNode;
 }) {
   const [modal, setModal] = useState<"new" | { edit: RoomInventoryRow } | null>(null);
-  const visibleCountLabel = `Showing ${rooms.length} of ${allCount} room${allCount === 1 ? "" : "s"}`;
+  const visibleCountLabel = `Showing ${filteredCount} of ${allCount} room${allCount === 1 ? "" : "s"}`;
 
   return (
     <>
@@ -682,7 +840,9 @@ function RoomsPanel({
             <h2 className="mt-1 text-lg font-semibold text-foreground [font-family:var(--font-outfit),system-ui,sans-serif]">
               Operational overview
             </h2>
-            <p className="mt-1 text-sm text-muted">Housekeeping and occupancy across rooms (respects filters above).</p>
+            <p className="mt-1 text-sm text-muted">
+              Occupancy follows the selected date; cleanliness is only shown for the current day.
+            </p>
           </div>
           <div className="rounded-full border border-border bg-muted/30 px-3 py-1.5 text-sm text-muted">
             {visibleCountLabel}
@@ -697,20 +857,32 @@ function RoomsPanel({
             dotClassName="bg-emerald-500"
             icon={<CheckCircle2 className="h-5 w-5" />}
           />
-          <RoomStatusStat
-            label="Clean"
-            value={hkCounts.clean ?? 0}
-            helper="Housekeeping complete"
-            dotClassName="bg-emerald-600 dark:bg-emerald-400"
-            icon={<Sparkles className="h-5 w-5" />}
-          />
-          <RoomStatusStat
-            label="Dirty"
-            value={hkCounts.dirty ?? 0}
-            helper="Needs housekeeping"
-            dotClassName="bg-gold"
-            icon={<CircleAlert className="h-5 w-5" />}
-          />
+          {showCleanliness ? (
+            <>
+              <RoomStatusStat
+                label="Clean"
+                value={hkCounts.clean ?? 0}
+                helper="Housekeeping complete"
+                dotClassName="bg-sky-500 dark:bg-sky-400"
+                icon={<Sparkles className="h-5 w-5" />}
+              />
+              <RoomStatusStat
+                label="Dirty"
+                value={hkCounts.dirty ?? 0}
+                helper="Needs housekeeping"
+                dotClassName="bg-gold"
+                icon={<CircleAlert className="h-5 w-5" />}
+              />
+            </>
+          ) : (
+            <RoomStatusStat
+              label="Cleanliness"
+              value={0}
+              helper="Only shown for today's snapshot"
+              dotClassName="bg-sky-500 dark:bg-sky-400"
+              icon={<Sparkles className="h-5 w-5" />}
+            />
+          )}
           <RoomStatusStat
             label="Occupied"
             value={occ}
@@ -737,6 +909,7 @@ function RoomsPanel({
               canManage={canManage}
               onEdit={() => setModal({ edit: r })}
               onRefresh={onRefresh}
+              showCleanliness={showCleanliness}
             />
           ))}
           {canManage ? (
@@ -767,6 +940,7 @@ function RoomsPanel({
                 <th className="px-4 py-3 font-medium">Type</th>
                 <th className="px-4 py-3 font-medium">Floor / building</th>
                 <th className="px-4 py-3 font-medium">Housekeeping</th>
+                <th className="px-4 py-3 font-medium">Occupancy</th>
                 <th className="px-4 py-3 font-medium">Operational</th>
                 <th className="w-20 px-4 py-3 text-right font-medium"> </th>
               </tr>
@@ -780,13 +954,26 @@ function RoomsPanel({
                     {r.floor ?? "—"} · {r.building ?? "—"}
                   </td>
                   <td className="px-4 py-3 align-middle">
-                    <HousekeepingSelect
-                      roomId={r.id}
-                      value={r.housekeeping_status}
-                      canManage={canManage}
-                      onUpdated={onRefresh}
-                      compact
-                    />
+                    {showCleanliness ? (
+                      <HousekeepingSelect
+                        roomId={r.id}
+                        value={r.housekeeping_status}
+                        operationalStatus={r.operational_status}
+                        canManage={canManage}
+                        onUpdated={onRefresh}
+                        compact
+                      />
+                    ) : (
+                      <span className="text-muted">Today only</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center gap-2 text-muted">
+                      <span
+                        className={cn("h-2 w-2 shrink-0 rounded-full", r.current_occupancy_status === "occupied" ? "bg-amber-500" : "bg-emerald-500")}
+                      />
+                      {occupancyLabel(r.current_occupancy_status)}
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center gap-2 text-muted">
@@ -811,8 +998,11 @@ function RoomsPanel({
         </div>
       )}
 
+      {pagination}
+
       {modal && canManage ? (
         <RoomFormModal
+          key={modal === "new" ? "new-room" : modal.edit.id}
           mode={modal === "new" ? "new" : "edit"}
           room={modal === "new" ? null : modal.edit}
           roomTypes={roomTypes}
@@ -832,11 +1022,13 @@ function RoomCard({
   canManage,
   onEdit,
   onRefresh,
+  showCleanliness,
 }: {
   room: RoomInventoryRow;
   canManage: boolean;
   onEdit: () => void;
   onRefresh: () => void;
+  showCleanliness: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>();
@@ -848,26 +1040,20 @@ function RoomCard({
   const [roomActionErr, setRoomActionErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!menuOpen) {
-      setMenuStyle(undefined);
-      return;
-    }
-    const t = triggerRef.current;
-    if (t) setMenuStyle(getFloatingMenuStyle(t, 120));
-  }, [menuOpen]);
-
-  useEffect(() => {
     if (!menuOpen) return;
     function onDoc(e: MouseEvent) {
       const n = e.target as Node;
       if (wrapRef.current?.contains(n) || menuRef.current?.contains(n)) return;
+      setMenuStyle(undefined);
       setMenuOpen(false);
     }
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
 
-  function requestInactive() {
+  const roomIsInactive = isInactiveRoom(r.operational_status);
+
+  function requestToggleInactive() {
     setRoomActionErr(null);
     setMenuOpen(false);
     setRoomConfirm("inactive");
@@ -876,7 +1062,10 @@ function RoomCard({
   async function executeRoomInactive() {
     setRoomActionLoading(true);
     setRoomActionErr(null);
-    const res = await setRoomOperationalStatusAction({ id: r.id, operationalStatus: "inactive" });
+    const res = await setRoomOperationalStatusAction({
+      id: r.id,
+      operationalStatus: roomIsInactive ? "" : "inactive",
+    });
     setRoomActionLoading(false);
     if (!res.ok) {
       setRoomActionErr(res.error);
@@ -923,6 +1112,7 @@ function RoomCard({
             aria-label="Room actions"
             onClick={() => {
               if (menuOpen) {
+                setMenuStyle(undefined);
                 setMenuOpen(false);
                 return;
               }
@@ -943,8 +1133,8 @@ function RoomCard({
                   <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/5" onClick={() => { setMenuOpen(false); onEdit(); }}>
                     <Pencil className="h-4 w-4" /> Edit
                   </button>
-                  <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/5" onClick={requestInactive}>
-                    <UserX className="h-4 w-4" /> Mark inactive
+                  <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/5" onClick={requestToggleInactive}>
+                    <UserX className="h-4 w-4" /> {roomIsInactive ? "Mark active" : "Mark inactive"}
                   </button>
                   <button
                     type="button"
@@ -963,7 +1153,7 @@ function RoomCard({
         className={cn(
           "absolute top-3 h-2.5 w-2.5 rounded-full",
           canManage ? "right-12" : "right-3",
-          statusDotClass(r.housekeeping_status, r.operational_status),
+          r.current_occupancy_status === "occupied" ? "bg-amber-500" : "bg-emerald-500",
         )}
       />
       <CardHeader className="pb-2 pr-10">
@@ -976,13 +1166,25 @@ function RoomCard({
         <div className="rounded border border-border px-2 py-1 text-center text-xs text-foreground/90">
           {r.room_type_name ?? "Unassigned type"}
         </div>
-        <HousekeepingSelect
-          roomId={r.id}
-          value={r.housekeeping_status}
-          canManage={canManage}
-          onUpdated={onRefresh}
-        />
+        {showCleanliness ? (
+          <HousekeepingSelect
+            roomId={r.id}
+            value={r.housekeeping_status}
+            operationalStatus={r.operational_status}
+            canManage={canManage}
+            onUpdated={onRefresh}
+          />
+        ) : (
+          <p className="mt-3 text-[10px] text-muted">
+            <span className="font-semibold uppercase tracking-wider">Housekeeping</span>{" "}
+            <span className="font-normal normal-case">Only shown for today</span>
+          </p>
+        )}
         <p className="mt-2 text-[10px] text-muted">
+          <span className="font-semibold uppercase tracking-wider">Occupancy</span>{" "}
+          <span className="font-normal normal-case">{occupancyLabel(r.current_occupancy_status)}</span>
+        </p>
+        <p className="mt-1 text-[10px] text-muted">
           <span className="font-semibold uppercase tracking-wider">Operational</span>{" "}
           <span className="font-normal normal-case">{operationalOnlyLabel(r.operational_status)}</span>
         </p>
@@ -991,10 +1193,14 @@ function RoomCard({
 
       <ConfirmModal
         open={roomConfirm === "inactive"}
-        title="Mark room inactive"
-        description={`Mark room ${r.room_number} as inactive?`}
-        confirmLabel="Mark inactive"
-        destructive
+        title={roomIsInactive ? "Mark room active" : "Mark room inactive"}
+        description={
+          roomIsInactive
+            ? `Mark room ${r.room_number} active again?`
+            : `Mark room ${r.room_number} as inactive?`
+        }
+        confirmLabel={roomIsInactive ? "Mark active" : "Mark inactive"}
+        destructive={!roomIsInactive}
         loading={roomActionLoading}
         error={roomActionErr}
         onCancel={closeRoomConfirm}
@@ -1033,20 +1239,10 @@ function RoomFormModal({
   const [floor, setFloor] = useState(room?.floor ?? "");
   const [building, setBuilding] = useState(room?.building ?? "");
   const [hk, setHk] = useState((room?.housekeeping_status as string) ?? "clean");
-  const [op, setOp] = useState((room?.operational_status as string) ?? "available");
+  const [op, setOp] = useState((room?.operational_status as string) ?? "");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (room) {
-      setRoomNumber(room.room_number);
-      setTypeId(room.room_type_id ?? "");
-      setFloor(room.floor ?? "");
-      setBuilding(room.building ?? "");
-      setHk(room.housekeeping_status ?? "clean");
-      setOp(room.operational_status ?? "available");
-    }
-  }, [room]);
+  const inactive = isInactiveRoom(op);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1133,6 +1329,7 @@ function RoomFormModal({
             <select
               className="mt-1 flex h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm"
               value={hk}
+              disabled={inactive}
               onChange={(e) => setHk(e.target.value)}
             >
               {HK_OPTIONS.map((o) => (
@@ -1141,6 +1338,7 @@ function RoomFormModal({
                 </option>
               ))}
             </select>
+            {inactive ? <p className="mt-1 text-xs text-muted">Inactive rooms do not carry a housekeeping status.</p> : null}
           </div>
           <div>
             <label className="text-xs font-medium text-muted">Operational</label>
