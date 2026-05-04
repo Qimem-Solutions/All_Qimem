@@ -146,14 +146,24 @@ export async function fetchPublicPortfolioBySlug(rawSlug: string): Promise<Publi
 }
 
 function parseOpenJobsRpc(raw: unknown): JobRequisitionRow[] {
-  if (!Array.isArray(raw)) return [];
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw) as unknown;
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
   const out: JobRequisitionRow[] = [];
-  for (const item of raw) {
+  for (const item of parsed) {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
-    const id = o.id;
-    const title = o.title;
-    if (typeof id !== "string" || typeof title !== "string") continue;
+    const idRaw = o.id;
+    const titleRaw = o.title;
+    const id = idRaw != null ? String(idRaw) : "";
+    const title = titleRaw != null ? String(titleRaw) : "";
+    if (!id || !title) continue;
     let createdAt: string | null = null;
     if (typeof o.created_at === "string") createdAt = o.created_at;
     else if (o.created_at != null) createdAt = String(o.created_at);
@@ -170,7 +180,7 @@ function parseOpenJobsRpc(raw: unknown): JobRequisitionRow[] {
   return out;
 }
 
-/** Open job postings for public `/p/{slug}` (anon RPC). */
+/** Open job postings for public `/p/{slug}` (anon RPC). Prefer {@link fetchOpenJobsPublicByTenantId} when the tenant id is known. */
 export async function fetchOpenJobsPublicBySlug(slug: string): Promise<{
   rows: JobRequisitionRow[];
   error: string | null;
@@ -180,6 +190,22 @@ export async function fetchOpenJobsPublicBySlug(slug: string): Promise<{
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("tenant_open_jobs_by_slug", { p_slug: trimmed });
+  if (error) return { rows: [], error: error.message };
+  return { rows: parseOpenJobsRpc(data), error: null };
+}
+
+/** Open job postings for the public portfolio (anon RPC by tenant id — matches the portfolio row from `tenant_public_portfolio_by_slug`). */
+export async function fetchOpenJobsPublicByTenantId(tenantId: string): Promise<{
+  rows: JobRequisitionRow[];
+  error: string | null;
+}> {
+  const trimmed = tenantId?.trim();
+  if (!trimmed) return { rows: [], error: null };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("tenant_open_jobs_by_tenant_id", {
+    p_tenant_id: trimmed,
+  });
   if (error) return { rows: [], error: error.message };
   return { rows: parseOpenJobsRpc(data), error: null };
 }

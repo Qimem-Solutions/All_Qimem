@@ -126,6 +126,8 @@ export async function updateHotelBrandingSettings(
     return { ok: false, error: "Accent color must be a valid #RRGGBB hex value." };
   }
   const supabase = await createClient();
+  const { data: slugRow } = await supabase.from("tenants").select("slug").eq("id", tenantId).maybeSingle();
+
   const { error } = await supabase
     .from("tenants")
     .update({ primary_brand_color })
@@ -136,6 +138,10 @@ export async function updateHotelBrandingSettings(
   revalidatePath("/hotel/settings");
   revalidatePath("/hotel/dashboard");
   revalidatePath("/hotel/modules");
+  const slug = slugRow?.slug;
+  if (typeof slug === "string" && slug.trim()) {
+    revalidatePath(`/p/${encodeURIComponent(slug.trim())}`);
+  }
   return { ok: true, message: "Accent color saved." };
 }
 

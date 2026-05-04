@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PublicPortfolioClient } from "@/components/hotel/public-portfolio-client";
 import {
-  fetchOpenJobsPublicBySlug,
+  fetchOpenJobsPublicByTenantId,
   fetchPublicPortfolioBySlug,
 } from "@/lib/queries/tenant-branding-public";
 
@@ -28,7 +28,7 @@ export default async function PublicPortfolioPage(props: Props) {
   const portfolio = await fetchPublicPortfolioBySlug(slug);
   if (!portfolio) notFound();
 
-  const { rows: jobs } = await fetchOpenJobsPublicBySlug(portfolio.slug);
+  const { rows: jobs } = await fetchOpenJobsPublicByTenantId(portfolio.id);
 
   return <PublicPortfolioClient portfolio={portfolio} jobs={jobs} />;
 }

@@ -10,23 +10,29 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { formatDate } from "@/lib/format";
 import {
   createShiftAction,
+  copyPriorWeekShiftsAction,
+  createShiftsForDepartmentAction,
   deleteShiftAction,
   recordPunchAction,
+  upsertTimesheetApprovalAction,
 } from "@/lib/actions/hrms-modules";
-import type { HrmsShiftRow } from "@/lib/queries/hrms-extended";
+import type { HrmsShiftRow, TimesheetApprovalRow } from "@/lib/queries/hrms-extended";
 import {
   SHIFT_TYPE_OPTIONS,
-  computeWorkedMinutesForDay,
   derivePresenceStatus,
   expectedClockInMs,
-  firstClockInMs,
+  firstClockInOnBusinessDay,
   formatPresenceLabel,
-  pickShiftForDay,
+  pickShiftForBusinessDay,
   punchesOnUtcDay,
   scheduledShiftMinutes,
   sortPunchesAsc,
+  workedMinutesPerBusinessDay,
+  utcBusinessDayKey,
   type PresenceStatus,
+  DEFAULT_WORK_DAY_BOUNDARY_HOUR_UTC,
 } from "@/lib/hrms/attendance-compute";
+import { Mail, Phone } from "lucide-react";
 
 type AttRow = {
   id: string;
@@ -43,7 +49,15 @@ type RangeAttRow = {
   punched_at: string;
 };
 
-type DashboardEmp = { id: string; full_name: string; department: string };
+type DashboardEmp = {
+  id: string;
+  full_name: string;
+  department: string;
+  email: string | null;
+  phone: string | null;
+};
+
+type DeptOpt = { id: string; name: string };
 
 type Props = {
   tenantId: string;
@@ -58,6 +72,10 @@ type Props = {
   punchToday: number;
   shiftError: string | null;
   attendanceError: string | null;
+  timesheetApprovals: TimesheetApprovalRow[];
+  timesheetApprovalsError: string | null;
+  departments: DeptOpt[];
+  departmentsError: string | null;
 };
 
 function utcTodayIso(): string {
@@ -129,13 +147,14 @@ function reportDates(
 }
 
 type AttendanceOverviewRow = {
+  employeeId: string;
   employeeName: string;
   department: string;
   workDate: string;
   totalMs: number;
   latestPunchAt: string;
   latestPunchType: string;
-  status: "working" | "away";
+  displayStatus: "working" | "on_break" | "clocked_out";
 };
 
 function formatDuration(totalMs: number) {
@@ -152,6 +171,46 @@ function formatPunchTypeLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
+/** Short weekday tags present in an inclusive UTC date span (e.g. M W F). */
+function weekdaysLabelUtc(fromIso: string, toIso: string): string {
+  const from = Date.parse(`${fromIso}T12:00:00.000Z`);
+  const to = Date.parse(`${toIso}T12:00:00.000Z`);
+  if (Number.isNaN(from) || Number.isNaN(to)) return "—";
+  const label = ["Su", "M", "T", "W", "Th", "F", "Sa"];
+  const bits = new Set<number>();
+  for (let t = from; t <= to; t += 86400000) {
+    bits.add(new Date(t).getUTCDay());
+  }
+  return [...bits]
+    .sort((a, b) => a - b)
+    .map((d) => label[d])
+    .join(" ");
+}
+
+function shiftOverlapsIsoDate(r: HrmsShiftRow, iso: string): boolean {
+  const start = r.shift_date;
+  const end = r.shift_date_to ?? r.shift_date;
+  return iso >= start && iso <= end;
+}
+
+function overviewRowLabel(
+  latestPunchType: string,
+): "Working" | "On break" | "Clocked out" {
+  const t = latestPunchType.toLowerCase();
+  if (t === "break_start") return "On break";
+  if (t === "out") return "Clocked out";
+  return "Working";
+}
+
+function overviewDisplayStatus(
+  latestType: string,
+): "working" | "on_break" | "clocked_out" {
+  const t = latestType.toLowerCase();
+  if (t === "break_start") return "on_break";
+  if (t === "out") return "clocked_out";
+  return "working";
+}
+
 export function TimeWorkforceClient({
   tenantId,
   canManage,
@@ -165,6 +224,10 @@ export function TimeWorkforceClient({
   punchToday,
   shiftError,
   attendanceError,
+  timesheetApprovals,
+  timesheetApprovalsError,
+  departments,
+  departmentsError,
 }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<"dashboard" | "overview" | "shifts" | "attendance" | "reports">(
@@ -198,10 +261,20 @@ export function TimeWorkforceClient({
   const [attPage, setAttPage] = useState(1);
   const [attPageSize, setAttPageSize] = useState(10);
   const [overviewQuery, setOverviewQuery] = useState("");
-  const [overviewStatus, setOverviewStatus] = useState<"all" | "working" | "away">("all");
+  const [overviewStatus, setOverviewStatus] = useState<
+    "all" | "working" | "on_break" | "clocked_out"
+  >("all");
   const [overviewPage, setOverviewPage] = useState(1);
   const [overviewPageSize, setOverviewPageSize] = useState(10);
   const [overviewGeneratedAt] = useState(() => Date.now());
+
+  const [dashboardDate, setDashboardDate] = useState(() => utcTodayIso());
+  const [dashboardQuery, setDashboardQuery] = useState("");
+  const [dashboardPage, setDashboardPage] = useState(1);
+  const [dashboardPageSize, setDashboardPageSize] = useState(10);
+  const [copyWeekLoading, setCopyWeekLoading] = useState(false);
+  const [deptBulkLoading, setDeptBulkLoading] = useState(false);
+  const [approvalKey, setApprovalKey] = useState<string | null>(null);
 
   const [reportPeriod, setReportPeriod] = useState<"day" | "week" | "month">("week");
   const [reportAnchor, setReportAnchor] = useState(() => utcTodayIso());
@@ -221,20 +294,33 @@ export function TimeWorkforceClient({
   const dashboardRows = useMemo(() => {
     return dashboardEmployees.map((emp) => {
       const empPunches = punchesByEmployee.get(emp.id) ?? [];
-      const todayPunches = sortPunchesAsc(punchesOnUtcDay(empPunches, today));
-      const status = derivePresenceStatus(todayPunches);
+      const dayPunches = sortPunchesAsc(punchesOnUtcDay(empPunches, dashboardDate));
+      const status = derivePresenceStatus(dayPunches);
       const lastAt =
-        todayPunches.length > 0 ? todayPunches[todayPunches.length - 1]!.punched_at : null;
+        dayPunches.length > 0 ? dayPunches[dayPunches.length - 1]!.punched_at : null;
       return {
         ...emp,
         status,
         lastAt,
       };
     });
-  }, [dashboardEmployees, punchesByEmployee, today]);
+  }, [dashboardEmployees, dashboardDate, punchesByEmployee]);
+
+  const dashboardFiltered = useMemo(() => {
+    const q = dashboardQuery.trim().toLowerCase();
+    return dashboardRows.filter((r) => {
+      if (!q) return true;
+      return (
+        r.full_name.toLowerCase().includes(q) ||
+        (r.department || "").toLowerCase().includes(q)
+      );
+    });
+  }, [dashboardRows, dashboardQuery]);
 
   const reportSlice = useMemo(() => {
     const { dates, label } = reportDates(reportPeriod, reportAnchor);
+    const lastDayIso = dates[dates.length - 1] ?? reportAnchor;
+    const periodEndMs = Date.parse(`${lastDayIso}T23:59:59.999Z`);
     type Row = {
       employeeId: string;
       name: string;
@@ -250,20 +336,21 @@ export function TimeWorkforceClient({
       let lateDays = 0;
       let overtimeMinutes = 0;
 
+      const empPunches = punchesByEmployee.get(emp.id) ?? [];
+      const perDay = workedMinutesPerBusinessDay(empPunches, periodEndMs);
+
       for (const dateIso of dates) {
-        const empPunches = punchesByEmployee.get(emp.id) ?? [];
-        const dayPunches = punchesOnUtcDay(empPunches, dateIso);
-        const sorted = sortPunchesAsc(dayPunches);
-        const worked = computeWorkedMinutesForDay(sorted);
+        const worked = perDay.get(dateIso) ?? 0;
         if (worked > 0) daysWithWork += 1;
         totalMinutes += worked;
 
-        const shift = pickShiftForDay(shifts, emp.id, dateIso);
-        if (shift && worked > 0) {
+        const picked = pickShiftForBusinessDay(shifts, emp.id, dateIso);
+        if (picked && worked > 0) {
+          const { shift, clockInDateIso } = picked;
           const sched = scheduledShiftMinutes(shift.start_time, shift.end_time);
           overtimeMinutes += Math.max(0, worked - sched);
-          const firstIn = firstClockInMs(sorted);
-          const exp = expectedClockInMs(shift, dateIso);
+          const firstIn = firstClockInOnBusinessDay(empPunches, dateIso);
+          const exp = expectedClockInMs(shift, clockInDateIso);
           if (firstIn != null && firstIn > exp + 60_000) lateDays += 1;
         }
       }
@@ -281,68 +368,44 @@ export function TimeWorkforceClient({
 
     const exceptions = rows.filter((r) => r.lateDays > 0 || r.overtimeMinutes > 0);
 
-    return { dates, label, rows, exceptions };
+    const periodStart = dates[0] ?? reportAnchor;
+    const periodEnd = dates[dates.length - 1] ?? reportAnchor;
+
+    return { dates, label, rows, exceptions, periodStart, periodEnd };
   }, [dashboardEmployees, punchesByEmployee, reportAnchor, reportPeriod, shifts]);
 
   const attendanceOverview = useMemo<AttendanceOverviewRow[]>(() => {
-    const grouped = new Map<string, AttRow[]>();
+    const asOf = overviewGeneratedAt;
+    const rows: AttendanceOverviewRow[] = [];
 
-    for (const row of attendance) {
-      const workDate = row.punched_at.slice(0, 10);
-      const key = `${row.employee_name}::${workDate}`;
-      const bucket = grouped.get(key) ?? [];
-      bucket.push(row);
-      grouped.set(key, bucket);
-    }
+    for (const emp of dashboardEmployees) {
+      const empPunches = punchesByEmployee.get(emp.id) ?? [];
+      const perDay = workedMinutesPerBusinessDay(empPunches, asOf);
 
-    return Array.from(grouped.values())
-      .map((rows) => {
-        const ordered = [...rows].sort(
-          (a, b) => new Date(a.punched_at).getTime() - new Date(b.punched_at).getTime(),
+      for (const [workDate, minutes] of perDay) {
+        if (minutes <= 0) continue;
+        const dayPunches = sortPunchesAsc(
+          empPunches.filter((p) => utcBusinessDayKey(Date.parse(p.punched_at)) === workDate),
         );
-        let activeStart: number | null = null;
-        let totalMs = 0;
-
-        for (const row of ordered) {
-          const stamp = new Date(row.punched_at).getTime();
-          if (Number.isNaN(stamp)) continue;
-
-          if (row.punch_type === "in") {
-            if (activeStart == null) activeStart = stamp;
-            continue;
-          }
-
-          if (row.punch_type === "break_start" || row.punch_type === "out") {
-            if (activeStart != null && stamp > activeStart) totalMs += stamp - activeStart;
-            activeStart = null;
-            continue;
-          }
-
-          if (row.punch_type === "break_end" && activeStart == null) {
-            activeStart = stamp;
-          }
-        }
-
-        if (activeStart != null) {
-          totalMs += Math.max(0, overviewGeneratedAt - activeStart);
-        }
-
-        const latest = ordered.at(-1);
-        if (!latest) return null;
-
-        return {
-          employeeName: latest.employee_name,
-          department: latest.department,
-          workDate: latest.punched_at.slice(0, 10),
-          totalMs,
+        const latest = dayPunches[dayPunches.length - 1];
+        if (!latest) continue;
+        rows.push({
+          employeeId: emp.id,
+          employeeName: emp.full_name,
+          department: emp.department,
+          workDate,
+          totalMs: minutes * 60000,
           latestPunchAt: latest.punched_at,
           latestPunchType: latest.punch_type,
-          status: latest.punch_type === "in" || latest.punch_type === "break_end" ? "working" : "away",
-        };
-      })
-      .filter((row): row is AttendanceOverviewRow => row != null)
-      .sort((a, b) => new Date(b.latestPunchAt).getTime() - new Date(a.latestPunchAt).getTime());
-  }, [attendance, overviewGeneratedAt]);
+          displayStatus: overviewDisplayStatus(latest.punch_type),
+        });
+      }
+    }
+
+    return rows.sort(
+      (a, b) => new Date(b.latestPunchAt).getTime() - new Date(a.latestPunchAt).getTime(),
+    );
+  }, [dashboardEmployees, punchesByEmployee, overviewGeneratedAt]);
   const totalWorkedMs = useMemo(
     () => attendanceOverview.reduce((sum, row) => sum + row.totalMs, 0),
     [attendanceOverview],
@@ -351,6 +414,29 @@ export function TimeWorkforceClient({
     () => new Set(attendance.map((row) => row.employee_name)).size,
     [attendance],
   );
+
+  const shiftListFiltered = useMemo(() => {
+    const q = shiftQuery.trim().toLowerCase();
+    return shifts.filter((r) => {
+      if (shiftTypeFilter !== "all" && (r.shift_type ?? "") !== shiftTypeFilter) return false;
+      if (shiftDateFilter && !shiftOverlapsIsoDate(r, shiftDateFilter)) return false;
+      if (!q) return true;
+      const blob = [r.employee_label ?? "", r.shift_type ?? "", r.shift_date ?? ""]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [shifts, shiftQuery, shiftTypeFilter, shiftDateFilter]);
+
+  const timesheetByEmployee = useMemo(() => {
+    const m = new Map<string, TimesheetApprovalRow>();
+    for (const a of timesheetApprovals) {
+      if (a.period_start === reportSlice.periodStart && a.period_end === reportSlice.periodEnd) {
+        m.set(a.employee_id, a);
+      }
+    }
+    return m;
+  }, [timesheetApprovals, reportSlice.periodStart, reportSlice.periodEnd]);
 
   async function onShiftSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -437,6 +523,71 @@ export function TimeWorkforceClient({
     return r.shift_date === end ? r.shift_date : `${r.shift_date} → ${end}`;
   }
 
+  async function onCopyPriorWeekSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!canManage) return;
+    const fd = new FormData(e.currentTarget);
+    const mon = String(fd.get("targetMonday") ?? "").trim();
+    if (!mon) {
+      showMsg("Choose the Monday of the week you want to fill.");
+      return;
+    }
+    setCopyWeekLoading(true);
+    setMsg(null);
+    const res = await copyPriorWeekShiftsAction({ tenantId, targetWeekMondayIso: mon });
+    setCopyWeekLoading(false);
+    if (!res.ok) {
+      setMsg(res.error);
+      return;
+    }
+    router.refresh();
+    showMsg(`Copied ${res.data?.created ?? 0} shift row(s) into that week.`);
+  }
+
+  async function onDepartmentBulkSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!canManage) return;
+    const fd = new FormData(e.currentTarget);
+    setDeptBulkLoading(true);
+    setMsg(null);
+    const res = await createShiftsForDepartmentAction({
+      tenantId,
+      departmentId: String(fd.get("departmentId")),
+      shiftDateFrom: String(fd.get("shiftDateFrom")),
+      shiftDateTo: String(fd.get("shiftDateTo")),
+      startTime: String(fd.get("startTime")),
+      endTime: String(fd.get("endTime")),
+      shiftType: String(fd.get("shiftType") ?? "") || null,
+    });
+    setDeptBulkLoading(false);
+    if (!res.ok) {
+      setMsg(res.error);
+      return;
+    }
+    router.refresh();
+    showMsg(`Created ${res.data?.created ?? 0} shift(s) for that department.`);
+  }
+
+  async function onTimesheetDecision(employeeId: string, status: "approved" | "rejected") {
+    if (!canManage) return;
+    setApprovalKey(`${employeeId}-${status}`);
+    setMsg(null);
+    const res = await upsertTimesheetApprovalAction({
+      tenantId,
+      employeeId,
+      periodStart: reportSlice.periodStart,
+      periodEnd: reportSlice.periodEnd,
+      status,
+    });
+    setApprovalKey(null);
+    if (!res.ok) {
+      setMsg(res.error);
+      return;
+    }
+    router.refresh();
+    showMsg(status === "approved" ? "Timesheet marked approved." : "Timesheet rejected.");
+  }
+
   const tabs = (
     <div className="flex flex-wrap gap-2 border-b border-border pb-2">
       {(
@@ -478,51 +629,147 @@ export function TimeWorkforceClient({
             <CardHeader>
               <CardTitle className="text-base">Real-time attendance</CardTitle>
               <CardDescription>
-                Live view for HR: each active employee&apos;s status today (UTC) from their latest punch —
-                In, Out, On Break, or Absent if they have not clocked in yet.
+                Filter by UTC date, search the roster, and page results. Status uses punches on that calendar
+                day (UTC midnight to midnight). For night shifts attributed to a “work day,” see Overview
+                (business-day rollup).
               </CardDescription>
             </CardHeader>
-            <CardContent className="overflow-x-auto">
+            <CardContent className="space-y-4 overflow-x-auto">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                <label className="text-xs text-zinc-400">
+                  Date (UTC)
+                  <Input
+                    className="mt-1 h-10 w-full min-w-[10rem] font-mono sm:w-auto"
+                    type="date"
+                    value={dashboardDate}
+                    onChange={(e) => {
+                      setDashboardDate(e.target.value);
+                      setDashboardPage(1);
+                    }}
+                  />
+                </label>
+                <Input
+                  placeholder="Search name or department…"
+                  value={dashboardQuery}
+                  onChange={(e) => {
+                    setDashboardQuery(e.target.value);
+                    setDashboardPage(1);
+                  }}
+                  className="max-w-md"
+                  aria-label="Search attendance list"
+                />
+              </div>
               {dashboardEmployeesError ? (
                 <p className="text-sm text-red-300">{dashboardEmployeesError}</p>
               ) : attendanceRangeError ? (
                 <p className="text-sm text-amber-200/90">
-                  Dashboard uses cached roster; punch range failed to load: {attendanceRangeError}
+                  Punch range failed to load: {attendanceRangeError}
                 </p>
               ) : dashboardEmployees.length === 0 ? (
                 <p className="text-sm text-zinc-500">No active employees for this property.</p>
               ) : (
-                <table className="w-full min-w-[640px] text-left text-sm">
+                <table className="w-full min-w-[720px] text-left text-sm">
                   <thead>
                     <tr className="border-b border-border text-xs uppercase text-zinc-500">
                       <th className="pb-3 font-medium">Employee</th>
                       <th className="pb-3 font-medium">Department</th>
                       <th className="pb-3 font-medium">Status</th>
-                      <th className="pb-3 font-medium">Last punch today</th>
+                      <th className="pb-3 font-medium">Last punch</th>
+                      <th className="pb-3 font-medium text-right">Follow up</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {dashboardRows.map((r) => (
-                      <tr key={r.id} className="border-b border-border/60">
-                        <td className="py-3 font-medium text-white">{r.full_name}</td>
-                        <td className="py-3 text-zinc-400">{r.department}</td>
-                        <td className="py-3">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${presenceBadgeClass(r.status)}`}
-                          >
-                            {formatPresenceLabel(r.status)}
-                          </span>
-                        </td>
-                        <td className="py-3 font-mono text-xs text-zinc-300">
-                          {r.lastAt ? new Date(r.lastAt).toLocaleString() : "—"}
-                        </td>
-                      </tr>
-                    ))}
+                    {(() => {
+                      const totalPages = Math.max(1, Math.ceil(dashboardFiltered.length / dashboardPageSize));
+                      const pageSafe = Math.min(Math.max(1, dashboardPage), totalPages);
+                      const offset = (pageSafe - 1) * dashboardPageSize;
+                      const paged = dashboardFiltered.slice(offset, offset + dashboardPageSize);
+                      return paged.map((r) => (
+                        <tr key={r.id} className="border-b border-border/60">
+                          <td className="py-3 font-medium text-white">{r.full_name}</td>
+                          <td className="py-3 text-zinc-400">{r.department}</td>
+                          <td className="py-3">
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${presenceBadgeClass(r.status)}`}
+                            >
+                              {formatPresenceLabel(r.status)}
+                            </span>
+                          </td>
+                          <td className="py-3 font-mono text-xs text-zinc-300">
+                            {r.lastAt ? new Date(r.lastAt).toLocaleString() : "—"}
+                          </td>
+                          <td className="py-3 text-right">
+                            {r.status === "absent" ? (
+                              <div className="inline-flex justify-end gap-2">
+                                {r.email ? (
+                                  <a
+                                    href={`mailto:${encodeURIComponent(r.email)}?subject=${encodeURIComponent("Attendance follow-up")}`}
+                                    className="inline-flex rounded-lg border border-border/60 p-1.5 text-zinc-300 hover:border-gold/40 hover:text-white"
+                                    title="Message"
+                                    aria-label="Send email"
+                                  >
+                                    <Mail className="h-4 w-4" />
+                                  </a>
+                                ) : (
+                                  <span
+                                    className="inline-flex cursor-not-allowed rounded-lg border border-border/30 p-1.5 text-zinc-600"
+                                    title="No email on file"
+                                    aria-label="No email"
+                                  >
+                                    <Mail className="h-4 w-4" />
+                                  </span>
+                                )}
+                                {r.phone ? (
+                                  <a
+                                    href={`tel:${r.phone.replace(/[^\d+]/g, "")}`}
+                                    className="inline-flex rounded-lg border border-border/60 p-1.5 text-zinc-300 hover:border-gold/40 hover:text-white"
+                                    title="Call"
+                                    aria-label="Call employee"
+                                  >
+                                    <Phone className="h-4 w-4" />
+                                  </a>
+                                ) : (
+                                  <span
+                                    className="inline-flex cursor-not-allowed rounded-lg border border-border/30 p-1.5 text-zinc-600"
+                                    title="No phone on file"
+                                    aria-label="No phone"
+                                  >
+                                    <Phone className="h-4 w-4" />
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-zinc-600">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ));
+                    })()}
                   </tbody>
                 </table>
               )}
-              <p className="mt-3 text-xs text-zinc-500">
-                Today ({today}) uses UTC midnight boundaries. Refresh the page to update after new punches.
+              <ListPagination
+                itemLabel="employees"
+                totalItems={dashboardRows.length}
+                filteredItems={dashboardFiltered.length}
+                page={Math.min(
+                  Math.max(1, dashboardPage),
+                  Math.max(1, Math.ceil(Math.max(1, dashboardFiltered.length) / dashboardPageSize)),
+                )}
+                pageSize={dashboardPageSize}
+                totalPages={Math.max(
+                  1,
+                  Math.ceil(Math.max(1, dashboardFiltered.length) / dashboardPageSize),
+                )}
+                onPageChange={setDashboardPage}
+                onPageSizeChange={(next) => {
+                  setDashboardPageSize(next);
+                  setDashboardPage(1);
+                }}
+              />
+              <p className="text-xs text-zinc-500">
+                Showing activity for UTC date{" "}
+                <span className="font-mono text-zinc-300">{dashboardDate}</span>. Refresh after new punches.
               </p>
             </CardContent>
           </Card>
@@ -554,7 +801,7 @@ export function TimeWorkforceClient({
               </CardHeader>
               <CardContent>
                 <p className="text-3xl font-semibold text-white">{formatDuration(totalWorkedMs)}</p>
-                <p className="mt-1 text-xs text-zinc-500">Calculated from the latest 50 punches</p>
+                <p className="mt-1 text-xs text-zinc-500">Business-day totals from loaded punch history</p>
               </CardContent>
             </Card>
             <Card>
@@ -570,7 +817,10 @@ export function TimeWorkforceClient({
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Attendance overview</CardTitle>
-              <CardDescription>User, work date, and total tracked time from recent punches.</CardDescription>
+              <CardDescription>
+                Each row is a hospitality business day (UTC, day starts {DEFAULT_WORK_DAY_BOUNDARY_HOUR_UTC}:00)
+                with time from in/out segments minus breaks.
+              </CardDescription>
             </CardHeader>
             <CardContent className="overflow-x-auto">
               <div className="mb-3 flex flex-col gap-3 sm:flex-row">
@@ -586,13 +836,16 @@ export function TimeWorkforceClient({
                   className="h-10 min-w-[11rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
                   value={overviewStatus}
                   onChange={(e) => {
-                    setOverviewStatus(e.target.value as "all" | "working" | "away");
+                    setOverviewStatus(
+                      e.target.value as "all" | "working" | "on_break" | "clocked_out",
+                    );
                     setOverviewPage(1);
                   }}
                 >
                   <option value="all">All statuses</option>
                   <option value="working">Working</option>
-                  <option value="away">Away</option>
+                  <option value="on_break">On break</option>
+                  <option value="clocked_out">Clocked out</option>
                 </select>
               </div>
               {attendanceOverview.length === 0 ? (
@@ -613,7 +866,7 @@ export function TimeWorkforceClient({
                       {(() => {
                         const q = overviewQuery.trim().toLowerCase();
                         const filtered = attendanceOverview.filter((row) => {
-                          if (overviewStatus !== "all" && row.status !== overviewStatus) return false;
+                          if (overviewStatus !== "all" && row.displayStatus !== overviewStatus) return false;
                           if (!q) return true;
                           return (
                             row.employeeName.toLowerCase().includes(q) ||
@@ -626,7 +879,7 @@ export function TimeWorkforceClient({
                         const offset = (pageSafe - 1) * overviewPageSize;
                         const paged = filtered.slice(offset, offset + overviewPageSize);
                         return paged.map((row) => (
-                          <tr key={`${row.employeeName}-${row.workDate}`} className="border-b border-border/60">
+                          <tr key={`${row.employeeId}-${row.workDate}`} className="border-b border-border/60">
                             <td className="py-3">
                               <p className="font-medium text-white">{row.employeeName}</p>
                               <p className="text-xs text-zinc-500">{row.department || "—"}</p>
@@ -640,10 +893,14 @@ export function TimeWorkforceClient({
                             <td className="py-3">
                               <span
                                 className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                                  row.status === "working" ? "bg-emerald-500/15 text-emerald-200" : "bg-zinc-500/15 text-zinc-300"
+                                  row.displayStatus === "working"
+                                    ? "bg-emerald-500/15 text-emerald-200"
+                                    : row.displayStatus === "on_break"
+                                      ? "bg-amber-500/15 text-amber-100"
+                                      : "bg-zinc-500/15 text-zinc-300"
                                 }`}
                               >
-                                {row.status === "working" ? "Working" : "Away"}
+                                {overviewRowLabel(row.latestPunchType)}
                               </span>
                             </td>
                           </tr>
@@ -657,15 +914,50 @@ export function TimeWorkforceClient({
                       totalItems={attendanceOverview.length}
                       filteredItems={attendanceOverview.filter((row) => {
                         const q = overviewQuery.trim().toLowerCase();
-                        if (overviewStatus !== "all" && row.status !== overviewStatus) return false;
+                        if (overviewStatus !== "all" && row.displayStatus !== overviewStatus) return false;
                         if (!q) return true;
                         return (
-                          row.employeeName.toLowerCase().includes(q) || (row.department || "").toLowerCase().includes(q) || row.workDate.includes(q)
+                          row.employeeName.toLowerCase().includes(q) ||
+                          (row.department || "").toLowerCase().includes(q) ||
+                          row.workDate.includes(q)
                         );
                       }).length}
-                      page={Math.min(Math.max(1, overviewPage), Math.max(1, Math.ceil(Math.max(1, attendanceOverview.length) / overviewPageSize)))}
+                      page={Math.min(
+                        Math.max(1, overviewPage),
+                        Math.max(
+                          1,
+                          Math.ceil(
+                            attendanceOverview.filter((row) => {
+                              const q = overviewQuery.trim().toLowerCase();
+                              if (overviewStatus !== "all" && row.displayStatus !== overviewStatus)
+                                return false;
+                              if (!q) return true;
+                              return (
+                                row.employeeName.toLowerCase().includes(q) ||
+                                (row.department || "").toLowerCase().includes(q) ||
+                                row.workDate.includes(q)
+                              );
+                            }).length / overviewPageSize,
+                          ),
+                        ),
+                      )}
                       pageSize={overviewPageSize}
-                      totalPages={Math.max(1, Math.ceil(Math.max(1, attendanceOverview.length) / overviewPageSize))}
+                      totalPages={Math.max(
+                        1,
+                        Math.ceil(
+                          attendanceOverview.filter((row) => {
+                            const q = overviewQuery.trim().toLowerCase();
+                            if (overviewStatus !== "all" && row.displayStatus !== overviewStatus)
+                              return false;
+                            if (!q) return true;
+                            return (
+                              row.employeeName.toLowerCase().includes(q) ||
+                              (row.department || "").toLowerCase().includes(q) ||
+                              row.workDate.includes(q)
+                            );
+                          }).length / overviewPageSize,
+                        ),
+                      )}
                       onPageChange={setOverviewPage}
                       onPageSizeChange={(next) => {
                         setOverviewPageSize(next);
@@ -686,6 +978,7 @@ export function TimeWorkforceClient({
             <p className="text-sm text-amber-200/90">Add employees in the directory before creating shifts.</p>
           ) : null}
           {canManage && employees.length > 0 ? (
+            <>
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Add shift</CardTitle>
@@ -749,6 +1042,98 @@ export function TimeWorkforceClient({
                 </form>
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Bulk scheduling</CardTitle>
+                <CardDescription>
+                  Copy last week&apos;s shifts forward, or assign one pattern to an entire department.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-6 lg:grid-cols-2">
+                <form className="space-y-3" onSubmit={onCopyPriorWeekSubmit}>
+                  <p className="text-sm font-medium text-white">Copy previous calendar week</p>
+                  <p className="text-xs text-zinc-500">
+                    Finds shifts with a start date in the Monday–Sunday before your target week, then inserts
+                    copies with all dates moved forward by 7 days.
+                  </p>
+                  <label className="text-xs text-zinc-400">
+                    Target week (Monday, UTC)
+                    <Input
+                      className="mt-1 font-mono"
+                      name="targetMonday"
+                      type="date"
+                      required
+                      defaultValue={weekDatesUtcContaining(today)[0]}
+                    />
+                  </label>
+                  <Button type="submit" disabled={copyWeekLoading} variant="secondary">
+                    {copyWeekLoading ? "Copying…" : "Copy into this week"}
+                  </Button>
+                </form>
+
+                <form className="space-y-3" onSubmit={onDepartmentBulkSubmit}>
+                  <p className="text-sm font-medium text-white">Assign to department</p>
+                  {departmentsError ? (
+                    <p className="text-xs text-amber-200/90">{departmentsError}</p>
+                  ) : null}
+                  <label className="text-xs text-zinc-400">
+                    Department
+                    <select
+                      name="departmentId"
+                      required
+                      className="mt-1 h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm"
+                    >
+                      <option value="">Select…</option>
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-xs text-zinc-400">
+                      From
+                      <Input className="mt-1 font-mono" name="shiftDateFrom" type="date" required defaultValue={today} />
+                    </label>
+                    <label className="text-xs text-zinc-400">
+                      To
+                      <Input className="mt-1 font-mono" name="shiftDateTo" type="date" required defaultValue={today} />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-xs text-zinc-400">
+                      Start
+                      <Input className="mt-1 font-mono" name="startTime" type="time" required defaultValue="09:00" />
+                    </label>
+                    <label className="text-xs text-zinc-400">
+                      End
+                      <Input className="mt-1 font-mono" name="endTime" type="time" required defaultValue="17:00" />
+                    </label>
+                  </div>
+                  <label className="text-xs text-zinc-400">
+                    Type
+                    <select
+                      name="shiftType"
+                      required
+                      className="mt-1 h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm"
+                    >
+                      <option value="">Select shift type…</option>
+                      {SHIFT_TYPE_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button type="submit" disabled={deptBulkLoading} variant="secondary">
+                    {deptBulkLoading ? "Saving…" : "Create for all in dept"}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+            </>
           ) : !canManage ? (
             <p className="text-sm text-zinc-500">HRMS manage access is required to add or delete shifts.</p>
           ) : null}
@@ -812,6 +1197,7 @@ export function TimeWorkforceClient({
                       <tr className="border-b border-border text-xs uppercase text-zinc-500">
                         <th className="pb-3 font-medium">Employee</th>
                         <th className="pb-3 font-medium">Dates</th>
+                        <th className="pb-3 font-medium">Days (UTC)</th>
                         <th className="pb-3 font-medium">Start</th>
                         <th className="pb-3 font-medium">End</th>
                         <th className="pb-3 font-medium">Type</th>
@@ -820,25 +1206,17 @@ export function TimeWorkforceClient({
                     </thead>
                     <tbody>
                       {(() => {
-                        const q = shiftQuery.trim().toLowerCase();
-                        const filtered = shifts.filter((r) => {
-                          if (shiftTypeFilter !== "all" && (r.shift_type ?? "") !== shiftTypeFilter)
-                            return false;
-                          if (shiftDateFilter && r.shift_date !== shiftDateFilter) return false;
-                          if (!q) return true;
-                          const blob = [r.employee_label ?? "", r.shift_type ?? "", r.shift_date ?? ""]
-                            .join(" ")
-                            .toLowerCase();
-                          return blob.includes(q);
-                        });
-                        const totalPages = Math.max(1, Math.ceil(filtered.length / shiftPageSize));
+                        const totalPages = Math.max(1, Math.ceil(shiftListFiltered.length / shiftPageSize));
                         const pageSafe = Math.min(Math.max(1, shiftPage), totalPages);
                         const offset = (pageSafe - 1) * shiftPageSize;
-                        const paged = filtered.slice(offset, offset + shiftPageSize);
+                        const paged = shiftListFiltered.slice(offset, offset + shiftPageSize);
                         return paged.map((r) => (
                           <tr key={r.id} className="border-b border-border/60">
                             <td className="py-3 text-white">{r.employee_label}</td>
                             <td className="py-3">{shiftDateLabel(r)}</td>
+                            <td className="py-3 text-xs text-zinc-400">
+                              {weekdaysLabelUtc(r.shift_date, r.shift_date_to ?? r.shift_date)}
+                            </td>
                             <td className="py-3 font-mono text-xs">{r.start_time}</td>
                             <td className="py-3 font-mono text-xs">{r.end_time}</td>
                             <td className="py-3 text-zinc-400">{r.shift_type ?? "—"}</td>
@@ -865,17 +1243,16 @@ export function TimeWorkforceClient({
                 <ListPagination
                   itemLabel="shifts"
                   totalItems={shifts.length}
-                  filteredItems={shifts.filter((r) => {
-                    if (shiftTypeFilter !== "all" && (r.shift_type ?? "") !== shiftTypeFilter) return false;
-                    if (shiftDateFilter && r.shift_date !== shiftDateFilter) return false;
-                    const q = shiftQuery.trim().toLowerCase();
-                    if (!q) return true;
-                    const blob = [r.employee_label ?? "", r.shift_type ?? "", r.shift_date ?? ""].join(" ").toLowerCase();
-                    return blob.includes(q);
-                  }).length}
-                  page={Math.min(Math.max(1, shiftPage), Math.max(1, Math.ceil(shifts.length / shiftPageSize)))}
+                  filteredItems={shiftListFiltered.length}
+                  page={Math.min(
+                    Math.max(1, shiftPage),
+                    Math.max(1, Math.ceil(Math.max(1, shiftListFiltered.length) / shiftPageSize)),
+                  )}
                   pageSize={shiftPageSize}
-                  totalPages={Math.max(1, Math.ceil(shifts.length / shiftPageSize))}
+                  totalPages={Math.max(
+                    1,
+                    Math.ceil(Math.max(1, shiftListFiltered.length) / shiftPageSize),
+                  )}
                   onPageChange={setShiftPage}
                   onPageSizeChange={(next) => {
                     setShiftPageSize(next);
@@ -1044,14 +1421,15 @@ export function TimeWorkforceClient({
             <CardHeader>
               <CardTitle className="text-base">Automated timesheets</CardTitle>
               <CardDescription>
-                Daily, weekly, or monthly totals from punches (in/out with breaks subtracted). Overtime and
-                late flags compare worked time to the scheduled shift on each day.
+                Daily, weekly, or monthly totals use hospitality business days (UTC, day starts{" "}
+                {DEFAULT_WORK_DAY_BOUNDARY_HOUR_UTC}:00). Overtime and late flags compare worked time to the
+                scheduled shift (including overnight shifts anchored the previous calendar day).
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {attendanceRangeError ? (
-                <p className="text-sm text-red-300">
-                  Could not load punch history: {attendanceRangeError}. Reports may be incomplete.
+              {timesheetApprovalsError ? (
+                <p className="text-sm text-amber-200/90">
+                  Timesheet approvals could not be loaded: {timesheetApprovalsError}
                 </p>
               ) : null}
               <div className="flex flex-wrap items-end gap-3">
@@ -1083,7 +1461,7 @@ export function TimeWorkforceClient({
               </div>
 
               <div className="overflow-x-auto rounded-lg border border-border/60">
-                <table className="w-full min-w-[720px] text-left text-sm">
+                <table className="w-full min-w-[960px] text-left text-sm">
                   <thead>
                     <tr className="border-b border-border bg-white/[0.03] text-xs uppercase text-zinc-500">
                       <th className="px-3 py-2 font-medium">Employee</th>
@@ -1092,10 +1470,16 @@ export function TimeWorkforceClient({
                       <th className="px-3 py-2 font-medium">Total hours</th>
                       <th className="px-3 py-2 font-medium">Late days</th>
                       <th className="px-3 py-2 font-medium">Overtime (hrs)</th>
+                      <th className="px-3 py-2 font-medium">Payroll</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {reportSlice.rows.map((r) => (
+                    {reportSlice.rows.map((r) => {
+                      const appr = timesheetByEmployee.get(r.employeeId);
+                      const busy =
+                        approvalKey === `${r.employeeId}-approved` ||
+                        approvalKey === `${r.employeeId}-rejected`;
+                      return (
                       <tr key={r.employeeId} className="border-b border-border/40">
                         <td className="px-3 py-2.5 font-medium text-white">{r.name}</td>
                         <td className="px-3 py-2.5 text-zinc-400">{r.department}</td>
@@ -1117,8 +1501,41 @@ export function TimeWorkforceClient({
                             <span className="text-zinc-500">—</span>
                           )}
                         </td>
+                        <td className="px-3 py-2.5 text-xs">
+                          {appr?.status === "approved" ? (
+                            <span className="text-emerald-200">Approved</span>
+                          ) : appr?.status === "rejected" ? (
+                            <span className="text-rose-200/90">Rejected</span>
+                          ) : canManage ? (
+                            <div className="flex flex-wrap gap-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 text-xs"
+                                disabled={busy}
+                                onClick={() => onTimesheetDecision(r.employeeId, "approved")}
+                              >
+                                {busy && approvalKey === `${r.employeeId}-approved` ? "…" : "Approve"}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 text-xs text-rose-200 hover:text-rose-100"
+                                disabled={busy}
+                                onClick={() => onTimesheetDecision(r.employeeId, "rejected")}
+                              >
+                                {busy && approvalKey === `${r.employeeId}-rejected` ? "…" : "Reject"}
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-zinc-500">Pending</span>
+                          )}
+                        </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

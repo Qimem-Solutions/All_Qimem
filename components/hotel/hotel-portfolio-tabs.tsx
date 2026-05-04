@@ -59,12 +59,12 @@ export function PortfolioApplyModalPortal({
     >
       <button
         type="button"
-        className="absolute inset-0 z-0 cursor-default bg-black/65 backdrop-blur-[1px]"
+        className="absolute inset-0 z-0 cursor-default bg-black/50 backdrop-blur-[1px] dark:bg-black/65"
         aria-label="Close"
         onClick={() => !applyPending && onClose()}
       />
       <div
-        className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-surface-elevated p-6 shadow-2xl"
+        className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-surface-elevated p-6 text-foreground shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="portfolio-apply-title" className="text-lg font-semibold text-foreground">
@@ -259,12 +259,12 @@ export function PortfolioContactPanel({
   const underline = cn(
     "w-full border-0 border-b-2 bg-transparent py-2 outline-none ring-0 transition-colors",
     isPortfolio
-      ? "border-white/15 py-2.5 text-sm text-white placeholder:text-zinc-600 focus-visible:border-gold"
+      ? "border-foreground/20 py-2.5 text-sm text-foreground placeholder:text-muted focus-visible:border-gold dark:border-white/15 dark:text-white dark:placeholder:text-zinc-600"
       : "border-border py-2 text-base text-foreground placeholder:text-muted focus-visible:border-gold",
   );
 
   const labelClass = isPortfolio
-    ? "block text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500"
+    ? "block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted"
     : "block text-sm font-medium text-foreground";
 
   return (
@@ -275,12 +275,12 @@ export function PortfolioContactPanel({
       )}
     >
       {isPortfolio ? (
-        <header className="space-y-2 border-b border-white/10 pb-6">
+        <header className="space-y-2 border-b border-border pb-6 dark:border-white/10">
           <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-gold">Get in touch</p>
-          <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl [font-family:var(--font-outfit),system-ui,sans-serif]">
+          <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl [font-family:var(--font-outfit),system-ui,sans-serif] dark:text-white">
             Contact us
           </h2>
-          <p className="max-w-xl text-sm leading-relaxed text-zinc-500">
+          <p className="max-w-xl text-sm leading-relaxed text-muted">
             Send a message using your email app, or reach the property directly using the details below.
           </p>
         </header>
@@ -294,7 +294,7 @@ export function PortfolioContactPanel({
         className={cn(
           "relative rounded-2xl border p-6 sm:p-10 md:p-12",
           isPortfolio
-            ? "mt-8 border-white/10 bg-white/[0.03] shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset]"
+            ? "mt-8 border-border bg-surface-elevated/70 shadow-sm dark:border-white/10 dark:bg-white/[0.03] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset]"
             : "border-border bg-surface-elevated/40",
         )}
       >
@@ -373,9 +373,9 @@ export function PortfolioContactPanel({
           </form>
 
           {isPortfolio ? (
-            <aside className="space-y-6 md:border-l md:border-white/10 md:pl-10 lg:pl-12">
-              <div className="rounded-xl border border-white/10 bg-black/25 p-5 sm:p-6">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+            <aside className="space-y-6 md:border-l md:border-border md:pl-10 lg:pl-12 dark:md:border-white/10">
+              <div className="rounded-xl border border-border bg-muted/30 p-5 sm:p-6 dark:border-white/10 dark:bg-black/25">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted dark:text-zinc-500">
                   Reach us
                 </p>
                 <ul className="mt-4 space-y-5">
@@ -383,16 +383,16 @@ export function PortfolioContactPanel({
                     <li>
                       <a
                         href={`tel:${phoneRaw.replace(/\s+/g, "")}`}
-                        className="group flex items-start gap-3 text-sm text-zinc-300 transition-colors hover:text-gold"
+                        className="group flex items-start gap-3 text-sm text-muted-foreground transition-colors hover:text-gold dark:text-zinc-300"
                       >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04]">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-elevated dark:border-white/10 dark:bg-white/[0.04]">
                           <Phone className="h-4 w-4 text-gold/90" strokeWidth={1.75} aria-hidden />
                         </span>
                         <span className="min-w-0 pt-1">
-                          <span className="block text-[11px] uppercase tracking-wide text-zinc-600">
+                          <span className="block text-[11px] uppercase tracking-wide text-muted dark:text-zinc-600">
                             Phone
                           </span>
-                          <span className="mt-0.5 block font-medium text-white">{phoneRaw}</span>
+                          <span className="mt-0.5 block font-medium text-foreground dark:text-white">{phoneRaw}</span>
                         </span>
                       </a>
                     </li>
@@ -401,31 +401,33 @@ export function PortfolioContactPanel({
                     {destinationEmail ? (
                       <a
                         href={`mailto:${destinationEmail}`}
-                        className="group inline-flex items-start gap-3 break-all text-sm text-zinc-300 underline-offset-4 transition-colors hover:text-gold hover:underline"
+                        className="group inline-flex items-start gap-3 break-all text-sm text-muted-foreground underline-offset-4 transition-colors hover:text-gold hover:underline dark:text-zinc-300"
                       >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04]">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-elevated dark:border-white/10 dark:bg-white/[0.04]">
                           <Mail className="h-4 w-4 text-gold/90" strokeWidth={1.75} aria-hidden />
                         </span>
                         <span className="min-w-0 pt-1">
-                          <span className="block text-[11px] uppercase tracking-wide text-zinc-600">
+                          <span className="block text-[11px] uppercase tracking-wide text-muted dark:text-zinc-600">
                             Email
                           </span>
-                          <span className="mt-0.5 block font-medium text-white">{destinationEmail}</span>
+                          <span className="mt-0.5 block font-medium text-foreground dark:text-white">
+                            {destinationEmail}
+                          </span>
                         </span>
                       </a>
                     ) : (
-                      <p className="text-sm text-zinc-500">No email published for this property yet.</p>
+                      <p className="text-sm text-muted">No email published for this property yet.</p>
                     )}
                   </li>
                 </ul>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-black/15 p-5 sm:p-6">
-                <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              <div className="rounded-xl border border-border bg-muted/20 p-5 sm:p-6 dark:border-white/10 dark:bg-black/15">
+                <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted dark:text-zinc-500">
                   <MapPin className="h-3.5 w-3.5 text-gold/80" aria-hidden />
                   Location
                 </p>
-                <p className="mt-3 text-sm leading-relaxed text-zinc-300">{basedIn}</p>
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground dark:text-zinc-300">{basedIn}</p>
               </div>
 
               {contact.policiesNotes?.trim() ? (
@@ -433,7 +435,7 @@ export function PortfolioContactPanel({
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold/90">
                     Note from the property
                   </p>
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-400">
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground dark:text-zinc-400">
                     {contact.policiesNotes.trim()}
                   </p>
                 </div>
@@ -475,7 +477,7 @@ export function PortfolioContactPanel({
             </span>
           </div>
         ) : (
-          <p className="mt-10 border-t border-white/10 pt-6 text-center text-xs text-zinc-600">
+          <p className="mt-10 border-t border-border pt-6 text-center text-xs text-muted dark:border-white/10 dark:text-zinc-600">
             Prefer social channels? Links are in the footer below.
           </p>
         )}

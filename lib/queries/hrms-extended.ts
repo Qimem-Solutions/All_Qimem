@@ -286,9 +286,45 @@ export async function fetchHrmsShiftsTable(tenantId: string, limit = 120): Promi
   };
 }
 
+export type TimesheetApprovalRow = {
+  id: string;
+  employee_id: string;
+  period_start: string;
+  period_end: string;
+  status: string;
+  decided_at: string | null;
+};
+
+/** Recent timesheet approval rows (newest first). */
+export async function fetchRecentTimesheetApprovals(
+  tenantId: string,
+  limit = 400,
+): Promise<{ rows: TimesheetApprovalRow[]; error: string | null }> {
+  const { db, error } = await srOrClient(tenantId);
+  if (error || !db) return { rows: [], error: error ?? "No database client." };
+
+  const { data, error: qErr } = await db
+    .from("timesheet_approvals")
+    .select("id, employee_id, period_start, period_end, status, decided_at")
+    .eq("tenant_id", tenantId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (qErr) {
+    if (
+      qErr.message?.includes("timesheet_approvals") &&
+      (qErr.message?.includes("schema cache") || qErr.code === "42P01" || qErr.message?.includes("does not exist"))
+    ) {
+      return { rows: [], error: null };
+    }
+    return { rows: [], error: qErr.message };
+  }
+  return { rows: (data ?? []) as TimesheetApprovalRow[], error: null };
+}
+
 /** Active employees with department label — for attendance dashboard / reports. */
 export async function fetchActiveEmployeesWithDept(tenantId: string): Promise<{
-  rows: { id: string; full_name: string; department: string }[];
+  rows: { id: string; full_name: string; department: string; email: string | null; phone: string | null }[];
   error: string | null;
 }> {
   const { db, error } = await srOrClient(tenantId);
@@ -296,14 +332,27 @@ export async function fetchActiveEmployeesWithDept(tenantId: string): Promise<{
 
   const { data: emps, error: qErr } = await db
     .from("employees")
-    .select("id, full_name, department_id")
+    .select("id, full_name, department_id, email, phone")
     .eq("tenant_id", tenantId)
     .eq("status", "active")
     .order("full_name", { ascending: true });
 
-  if (qErr) return { rows: [], error: qErr.message };
+  let empsFinal = emps;
+  let qErrFinal = qErr;
+  if (qErrFinal?.message?.toLowerCase().includes("phone")) {
+    const retry = await db
+      .from("employees")
+      .select("id, full_name, department_id, email")
+      .eq("tenant_id", tenantId)
+      .eq("status", "active")
+      .order("full_name", { ascending: true });
+    empsFinal = retry.data;
+    qErrFinal = retry.error;
+  }
 
-  const deptIds = [...new Set((emps ?? []).map((e) => e.department_id).filter(Boolean))] as string[];
+  if (qErrFinal) return { rows: [], error: qErrFinal.message };
+
+  const deptIds = [...new Set((empsFinal ?? []).map((e) => e.department_id).filter(Boolean))] as string[];
   let deptMap = new Map<string, string>();
   if (deptIds.length) {
     const { data: depts } = await db.from("departments").select("id, name").eq("tenant_id", tenantId).in("id", deptIds);
@@ -311,13 +360,37 @@ export async function fetchActiveEmployeesWithDept(tenantId: string): Promise<{
   }
 
   return {
-    rows: (emps ?? []).map((e) => ({
-      id: e.id,
-      full_name: e.full_name,
-      department: e.department_id ? deptMap.get(e.department_id) ?? "—" : "—",
-    })),
+    rows: (empsFinal ?? []).map((e) => {
+      const r = e as typeof e & { phone?: string | null };
+      return {
+        id: e.id,
+        full_name: e.full_name,
+        department: e.department_id ? deptMap.get(e.department_id) ?? "—" : "—",
+        email: e.email ?? null,
+        phone: r.phone ?? null,
+      };
+    }),
     error: null,
   };
+}
+
+/** Employee ids in a department (for bulk shift assignment). */
+export async function fetchEmployeeIdsInDepartment(
+  tenantId: string,
+  departmentId: string,
+): Promise<{ ids: string[]; error: string | null }> {
+  const { db, error } = await srOrClient(tenantId);
+  if (error || !db) return { ids: [], error: error ?? "No database client." };
+
+  const { data, error: qErr } = await db
+    .from("employees")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("department_id", departmentId)
+    .eq("status", "active");
+
+  if (qErr) return { ids: [], error: qErr.message };
+  return { ids: (data ?? []).map((r) => r.id), error: null };
 }
 
 /** Attendance punches in [rangeStart, rangeEnd] (ISO timestamps), capped for safety. */

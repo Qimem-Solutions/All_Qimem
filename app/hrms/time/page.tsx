@@ -3,7 +3,14 @@ import { getUserContext } from "@/lib/queries/context";
 import { canManageHrStaff } from "@/lib/auth/can-manage-hr-staff";
 import { fetchAttendanceLogs } from "@/lib/queries/tenant-data";
 import { fetchHrmsDashboardStats } from "@/lib/queries/tenant-data";
-import { fetchHrmsShiftsTable, fetchEmployeeOptions, fetchActiveEmployeesWithDept, fetchAttendanceLogsRange } from "@/lib/queries/hrms-extended";
+import {
+  fetchHrmsShiftsTable,
+  fetchEmployeeOptions,
+  fetchActiveEmployeesWithDept,
+  fetchAttendanceLogsRange,
+  fetchRecentTimesheetApprovals,
+} from "@/lib/queries/hrms-extended";
+import { fetchTenantDepartmentsForSelect } from "@/lib/queries/tenant-data";
 import { TimeWorkforceClient } from "@/components/hrms/time-workforce-client";
 import { createClient } from "@/lib/supabase/server";
 
@@ -30,15 +37,18 @@ export default async function HrmsTimePage() {
   const rangeStartIso = rangeStart.toISOString();
   const rangeEndIso = rangeEnd.toISOString();
 
-  const [manage, shiftsRes, attRes, empRes, dash, activeEmpRes, rangeAttRes] = await Promise.all([
-    canManageHrStaff(ctx),
-    fetchHrmsShiftsTable(tenantId, 120),
-    fetchAttendanceLogs(tenantId),
-    fetchEmployeeOptions(tenantId),
-    fetchHrmsDashboardStats(tenantId),
-    fetchActiveEmployeesWithDept(tenantId),
-    fetchAttendanceLogsRange(tenantId, rangeStartIso, rangeEndIso),
-  ]);
+  const [manage, shiftsRes, attRes, empRes, dash, activeEmpRes, rangeAttRes, timesheetRes, deptRes] =
+    await Promise.all([
+      canManageHrStaff(ctx),
+      fetchHrmsShiftsTable(tenantId, 120),
+      fetchAttendanceLogs(tenantId),
+      fetchEmployeeOptions(tenantId),
+      fetchHrmsDashboardStats(tenantId),
+      fetchActiveEmployeesWithDept(tenantId),
+      fetchAttendanceLogsRange(tenantId, rangeStartIso, rangeEndIso),
+      fetchRecentTimesheetApprovals(tenantId),
+      fetchTenantDepartmentsForSelect(tenantId),
+    ]);
 
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
@@ -76,6 +86,10 @@ export default async function HrmsTimePage() {
         punchToday={punchToday}
         shiftError={shiftsRes.error}
         attendanceError={attRes.error}
+        timesheetApprovals={timesheetRes.rows}
+        timesheetApprovalsError={timesheetRes.error}
+        departments={deptRes.rows}
+        departmentsError={deptRes.error}
       />
     </div>
   );

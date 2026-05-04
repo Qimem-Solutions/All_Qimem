@@ -36,6 +36,15 @@ function getAvailabilityStatus(available: number, physical: number) {
   return "open";
 }
 
+/** Short label for the grid cell (matches occupancy, not “available” when fully booked). */
+function cellAvailabilityCaption(status: ReturnType<typeof getAvailabilityStatus>, available: number, physical: number) {
+  if (status === "unavailable") return "N/A";
+  if (status === "full") return "Occupied";
+  if (status === "low") return "Low";
+  if (available < physical) return "Partially occupied";
+  return "Open";
+}
+
 /** Cell styling that works in light and dark mode */
 function occupancyTone(status: ReturnType<typeof getAvailabilityStatus>) {
   if (status === "unavailable") return "border-border bg-muted/30 text-muted";
@@ -368,7 +377,7 @@ export function AvailabilityPageClient({
                     Low
                   </span>
                   <span className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-red-800 dark:text-red-200">
-                    Full
+                    Occupied
                   </span>
                 </div>
               </div>
@@ -432,7 +441,7 @@ export function AvailabilityPageClient({
                                   </span>
                                   <span className="mt-1 block text-[10px] opacity-90">{cell.priceCents > 0 ? formatBirrCents(cell.priceCents) : "—"}</span>
                                   <span className="mt-1 block text-[10px] opacity-90">
-                                    {status === "full" ? "Full" : status === "low" ? "Low" : status === "open" ? "Open" : "N/A"}
+                                    {cellAvailabilityCaption(status, cell.available, cell.physical)}
                                   </span>
                                 </button>
                               </td>
@@ -565,7 +574,7 @@ export function AvailabilityPageClient({
                       <div>
                         <p className="text-base font-semibold text-foreground">{room.roomNumber}</p>
                         <p className="mt-1 text-xs text-muted">
-                          {room.occupied ? `Blocked by ${room.reservationStatus?.replaceAll("_", " ") ?? "reservation"}` : "Free for this night"}
+                          {room.occupied ? `Blocked by ${room.reservationStatus?.replaceAll("_", " ") ?? "reservation"}` : "Vacant this night"}
                         </p>
                       </div>
                       <span
@@ -577,7 +586,7 @@ export function AvailabilityPageClient({
                         )}
                       >
                         <CircleDot className="h-3 w-3" />
-                        {room.occupied ? "Occupied" : "Available"}
+                        {room.occupied ? "Occupied" : "Vacant"}
                       </span>
                     </div>
                   </div>

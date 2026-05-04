@@ -20,6 +20,27 @@
   --welcome-grid: rgba(24, 24, 27, 0.08);
 }
 
+/*
+ * Scoped light theme for public /p/{slug} when the guest chooses light mode while
+ * the app shell may still have class "dark" on html (next-themes).
+ */
+.portfolio-light {
+  color-scheme: light;
+  --background: #fafaf9;
+  --foreground: #000000;
+  --muted: #71717a;
+  --surface: #f4f4f5;
+  --surface-elevated: #ffffff;
+  --border: #e4e4e7;
+  --sidebar: #ececed;
+  --sidebar-muted: #71717a;
+  --gold: #a16207;
+  --gold-dim: #854d0e;
+  --gold-foreground: #fafaf9;
+  --ring-subtle: rgba(24, 24, 27, 0.08);
+  --welcome-grid: rgba(24, 24, 27, 0.08);
+}
+
 /* Dark */
 .dark {
   color-scheme: dark;

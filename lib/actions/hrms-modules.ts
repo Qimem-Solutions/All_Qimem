@@ -12,6 +12,12 @@ import {
   type PayrollRunRow,
 } from "@/lib/queries/hrms-extended";
 import { toUserFacingError } from "@/lib/errors/user-facing";
+import {
+  derivePunchSessionState,
+  nextPunchAllowed,
+  type PunchSessionState,
+  addUtcDaysIso,
+} from "@/lib/hrms/attendance-compute";
 
 const HR_PATHS = [
   "/hrms/time",
@@ -26,6 +32,20 @@ const HR_PATHS = [
 
 function revalidateHr() {
   for (const p of HR_PATHS) revalidatePath(p);
+}
+
+/** Public `/p/{slug}` may cache job listings; refresh when requisitions change. */
+async function revalidatePublicPortfolioJobs(tenantId: string) {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.from("tenants").select("slug").eq("id", tenantId).maybeSingle();
+    const slug = data?.slug;
+    if (typeof slug === "string" && slug.trim()) {
+      revalidatePath(`/p/${encodeURIComponent(slug.trim())}`);
+    }
+  } catch {
+    /* non-fatal */
+  }
 }
 
 type Ok<T = void> = { ok: true; data?: T } | { ok: false; error: string };
@@ -110,6 +130,19 @@ export async function deleteShiftAction(input: { tenantId: string; shiftId: stri
   return { ok: true };
 }
 
+function punchStateMessage(state: PunchSessionState): string {
+  switch (state) {
+    case "off_duty":
+      return "off duty";
+    case "working":
+      return "clocked in";
+    case "on_break":
+      return "on a break";
+    default:
+      return "in an unknown state";
+  }
+}
+
 export async function recordPunchAction(input: {
   tenantId: string;
   employeeId: string;
@@ -121,6 +154,40 @@ export async function recordPunchAction(input: {
   if (!["in", "out", "break_start", "break_end"].includes(t)) {
     return { ok: false, error: "Invalid punch type." };
   }
+
+  const since = new Date(Date.now() - 120 * 86400_000).toISOString();
+  const { data: history, error: hErr } = await gate.db
+    .from("attendance_logs")
+    .select("punch_type, punched_at")
+    .eq("tenant_id", input.tenantId)
+    .eq("employee_id", input.employeeId)
+    .gte("punched_at", since)
+    .order("punched_at", { ascending: true })
+    .limit(4000);
+
+  if (hErr) return { ok: false, error: toUserFacingError(hErr.message) };
+
+  const punches = (history ?? []).map((h) => ({
+    punch_type: h.punch_type,
+    punched_at: h.punched_at,
+  }));
+  const state = derivePunchSessionState(punches);
+  const allowed = nextPunchAllowed(t);
+  if (!allowed.includes(state)) {
+    const hint =
+      t === "in"
+        ? " Clock in only after you have clocked out."
+        : t === "out"
+          ? " Clock out requires an active clock-in."
+          : t === "break_start"
+            ? " Start a break only while clocked in."
+            : " End break only after a break has started.";
+    return {
+      ok: false,
+      error: `Cannot record “${t}” while ${punchStateMessage(state)}.${hint}`,
+    };
+  }
+
   const { error } = await gate.db.from("attendance_logs").insert({
     tenant_id: input.tenantId,
     employee_id: input.employeeId,
@@ -194,6 +261,7 @@ export async function createJobRequisitionAction(input: {
     .single();
   if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
+  await revalidatePublicPortfolioJobs(input.tenantId);
   return { ok: true, data: { id: data!.id } };
 }
 
@@ -211,6 +279,7 @@ export async function updateJobRequisitionStatusAction(input: {
     .eq("tenant_id", input.tenantId);
   if (error) return { ok: false, error: toUserFacingError(error.message) };
   revalidateHr();
+  await revalidatePublicPortfolioJobs(input.tenantId);
   return { ok: true };
 }
 
@@ -853,6 +922,136 @@ export async function deleteEmployeeRecordAction(input: {
     .eq("id", input.employeeId)
     .eq("tenant_id", input.tenantId);
   if (error) return { ok: false, error: toUserFacingError(error.message) };
+  revalidateHr();
+  return { ok: true };
+}
+
+/** Duplicates shifts from the previous calendar week into the target week (same weekdays). */
+export async function copyPriorWeekShiftsAction(input: {
+  tenantId: string;
+  /** Monday (UTC) of the week to receive copied shifts, YYYY-MM-DD */
+  targetWeekMondayIso: string;
+}): Promise<Ok<{ created: number }>> {
+  const gate = await dbOrAdmin(input.tenantId);
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const mon = input.targetWeekMondayIso.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(mon)) {
+    return { ok: false, error: "Invalid week date." };
+  }
+  const prevMon = addUtcDaysIso(mon, -7);
+
+  const { data: rows, error: qErr } = await gate.db
+    .from("shifts")
+    .select("employee_id, shift_date, shift_date_to, start_time, end_time, shift_type")
+    .eq("tenant_id", input.tenantId)
+    .gte("shift_date", prevMon)
+    .lte("shift_date", prevSun);
+
+  if (qErr) return { ok: false, error: toUserFacingError(qErr.message) };
+
+  let created = 0;
+  for (const r of rows ?? []) {
+    const raw = r as typeof r & { shift_date_to?: string | null };
+    const newFrom = addUtcDaysIso(r.shift_date, 7);
+    const newTo = raw.shift_date_to ? addUtcDaysIso(raw.shift_date_to, 7) : newFrom;
+    const { error } = await gate.db.from("shifts").insert({
+      tenant_id: input.tenantId,
+      employee_id: r.employee_id,
+      shift_date: newFrom,
+      shift_date_to: newTo,
+      start_time: r.start_time,
+      end_time: r.end_time,
+      shift_type: r.shift_type ?? null,
+    });
+    if (error) return { ok: false, error: toUserFacingError(error.message) };
+    created += 1;
+  }
+  revalidateHr();
+  return { ok: true, data: { created } };
+}
+
+export async function createShiftsForDepartmentAction(input: {
+  tenantId: string;
+  departmentId: string;
+  shiftDateFrom: string;
+  shiftDateTo: string;
+  startTime: string;
+  endTime: string;
+  shiftType?: string | null;
+}): Promise<Ok<{ created: number }>> {
+  const gate = await dbOrAdmin(input.tenantId);
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const from = input.shiftDateFrom.trim();
+  const to = input.shiftDateTo.trim() || from;
+  if (!from) return { ok: false, error: "Shift start date is required." };
+  if (to < from) return { ok: false, error: "Shift end date cannot be before start date." };
+
+  const { data: emps, error: eErr } = await gate.db
+    .from("employees")
+    .select("id")
+    .eq("tenant_id", input.tenantId)
+    .eq("department_id", input.departmentId)
+    .eq("status", "active");
+
+  if (eErr) return { ok: false, error: toUserFacingError(eErr.message) };
+  const ids = (emps ?? []).map((e) => e.id);
+  if (ids.length === 0) return { ok: false, error: "No active employees in this department." };
+
+  let created = 0;
+  for (const employeeId of ids) {
+    const { error } = await gate.db.from("shifts").insert({
+      tenant_id: input.tenantId,
+      employee_id: employeeId,
+      shift_date: from,
+      shift_date_to: to,
+      start_time: input.startTime,
+      end_time: input.endTime,
+      shift_type: input.shiftType?.trim() || null,
+    });
+    if (error) return { ok: false, error: toUserFacingError(error.message) };
+    created += 1;
+  }
+  revalidateHr();
+  return { ok: true, data: { created } };
+}
+
+export async function upsertTimesheetApprovalAction(input: {
+  tenantId: string;
+  employeeId: string;
+  periodStart: string;
+  periodEnd: string;
+  status: "approved" | "rejected";
+  notes?: string | null;
+}): Promise<Ok> {
+  const gate = await dbOrAdmin(input.tenantId);
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const ctx = await getUserContext();
+  if (!ctx?.userId) return { ok: false, error: "Not signed in." };
+
+  const decidedAt = new Date().toISOString();
+  const { error } = await gate.db.from("timesheet_approvals").upsert(
+    {
+      tenant_id: input.tenantId,
+      employee_id: input.employeeId,
+      period_start: input.periodStart,
+      period_end: input.periodEnd,
+      status: input.status,
+      notes: input.notes?.trim() || null,
+      decided_at: decidedAt,
+      decided_by: ctx.userId,
+    },
+    { onConflict: "tenant_id,employee_id,period_start,period_end" },
+  );
+
+  if (error) {
+    if (error.message?.includes("timesheet_approvals") || error.code === "42P01") {
+      return {
+        ok: false,
+        error: "Timesheet approvals require the latest database migration (timesheet_approvals table).",
+      };
+    }
+    return { ok: false, error: toUserFacingError(error.message) };
+  }
   revalidateHr();
   return { ok: true };
 }

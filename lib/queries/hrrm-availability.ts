@@ -74,9 +74,10 @@ export function isCanceledReservation(status: string | null): boolean {
   return s === "canceled" || s === "cancelled";
 }
 
+/** Holds inventory: pending holds, confirmed (DB default), and in-house stays. */
 export function isBlockingReservationStatus(status: string | null): boolean {
   const s = (status ?? "").toLowerCase();
-  return s === "pending" || s === "checked_in";
+  return s === "pending" || s === "confirmed" || s === "checked_in";
 }
 
 export function isFinishedReservation(status: string | null): boolean {
@@ -90,13 +91,30 @@ export function isFinishedReservation(status: string | null): boolean {
   );
 }
 
+/** Normalize Supabase date / ISO datetime to YYYY-MM-DD for comparisons. */
+function normalizeCalendarDate(raw: string): string {
+  const t = raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(t)) return t.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2} /.test(t)) return t.slice(0, 10);
+  const ms = Date.parse(t);
+  if (!Number.isNaN(ms)) return new Date(ms).toISOString().slice(0, 10);
+  return t;
+}
+
 /** Night D is occupied if check_in <= D < check_out (date strings). */
 function reservationCoversDate(checkIn: string, checkOut: string, d: string): boolean {
-  return checkIn <= d && checkOut > d;
+  const ci = normalizeCalendarDate(checkIn);
+  const co = normalizeCalendarDate(checkOut);
+  const day = normalizeCalendarDate(d);
+  return ci <= day && co > day;
 }
 
 function rangesOverlap(aIn: string, aOut: string, bIn: string, bOut: string): boolean {
-  return aIn < bOut && aOut > bIn;
+  return (
+    normalizeCalendarDate(aIn) < normalizeCalendarDate(bOut) &&
+    normalizeCalendarDate(aOut) > normalizeCalendarDate(bIn)
+  );
 }
 
 async function getAvailabilityDb() {

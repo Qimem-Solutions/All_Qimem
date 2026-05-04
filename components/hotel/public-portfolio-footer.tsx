@@ -38,9 +38,10 @@ function SocialGlyphLinkedIn({ className }: { className?: string }) {
   );
 }
 
-const colHeading = "text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-400";
+const colHeading =
+  "text-[11px] font-semibold uppercase tracking-[0.2em] text-muted dark:text-zinc-400";
 const linkClass =
-  "block text-left text-sm text-white/90 transition-colors hover:text-white hover:underline underline-offset-4";
+  "block text-left text-sm text-foreground/90 transition-colors hover:text-foreground hover:underline underline-offset-4 dark:text-white/90 dark:hover:text-white";
 
 /** Ensures mailto: stays intact and bare domains get https:// */
 function outboundHref(raw: string): string {
@@ -51,10 +52,10 @@ function outboundHref(raw: string): string {
 }
 
 const socialIconBtn =
-  "inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-white/[0.06] text-white/88 transition-colors hover:border-gold/35 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold/60";
+  "inline-flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-elevated text-foreground/90 transition-colors hover:border-gold/35 hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold/60 dark:border-white/18 dark:bg-white/[0.06] dark:text-white/88 dark:hover:border-gold/35 dark:hover:bg-white/10 dark:hover:text-white";
 
 const socialIconPlaceholder =
-  "inline-flex h-11 w-11 cursor-default items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-white/30";
+  "inline-flex h-11 w-11 cursor-default items-center justify-center rounded-full border border-border bg-muted/50 text-muted dark:border-white/10 dark:bg-white/[0.03] dark:text-white/30";
 
 function SocialIconLink({
   url,
@@ -109,7 +110,7 @@ export function PublicPortfolioFooter({ portfolio, onNavigate }: Props) {
   const hasFooterGuestTimes = !!(checkInFooter || checkOutFooter);
 
   return (
-    <footer className="relative mt-auto overflow-hidden bg-[#141414] text-white">
+    <footer className="relative mt-auto overflow-hidden border-t border-border bg-sidebar text-foreground dark:border-transparent dark:bg-[#141414] dark:text-white">
       {/* Subtle geometric texture (inspired by premium hotel group footers) */}
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.07]"
@@ -125,20 +126,22 @@ export function PublicPortfolioFooter({ portfolio, onNavigate }: Props) {
       />
       <div className="relative z-10 px-4 py-14 sm:px-6 md:px-10 lg:px-14">
         {/* Brand block */}
-        <div className="flex flex-col items-center border-b border-white/10 pb-12 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full border border-white/15 bg-white/5">
+        <div className="flex flex-col items-center border-b border-border pb-12 text-center dark:border-white/10">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full border border-border bg-surface-elevated dark:border-white/15 dark:bg-white/5">
             {portfolio.logo_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={portfolio.logo_url} alt="" className="h-10 w-10 rounded-full object-contain" />
             ) : (
-              <Sparkles className="h-7 w-7 text-white/80" aria-hidden />
+              <Sparkles className="h-7 w-7 text-muted dark:text-white/80" aria-hidden />
             )}
           </div>
-          <p className="mt-5 text-xl font-bold uppercase tracking-[0.28em] text-white sm:text-2xl">
+          <p className="mt-5 text-xl font-bold uppercase tracking-[0.28em] text-foreground sm:text-2xl dark:text-white">
             {portfolio.name}
           </p>
           {tagline ? (
-            <p className="mt-2 text-xs font-medium uppercase tracking-[0.35em] text-zinc-400">{tagline}</p>
+            <p className="mt-2 text-xs font-medium uppercase tracking-[0.35em] text-muted dark:text-zinc-400">
+              {tagline}
+            </p>
           ) : null}
         </div>
 
@@ -146,21 +149,23 @@ export function PublicPortfolioFooter({ portfolio, onNavigate }: Props) {
         <div className="mx-auto mt-12 grid max-w-6xl gap-10 sm:grid-cols-2 lg:grid-cols-5 lg:gap-8">
           <div>
             <h3 className={colHeading}>Location</h3>
-            <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-white/85">{locationBlock}</p>
+            <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-foreground/85 dark:text-white/85">
+              {locationBlock}
+            </p>
             {hasFooterGuestTimes ? (
               <>
                 <h3 className={cn(colHeading, "mt-8")}>Availability</h3>
-                <ul className="mt-4 space-y-2 text-sm leading-relaxed text-white/85">
+                <ul className="mt-4 space-y-2 text-sm leading-relaxed text-foreground/85 dark:text-white/85">
                   {checkInFooter ? (
                     <li>
                       Check-in from{" "}
-                      <span className="font-semibold text-white">{checkInFooter}</span>
+                      <span className="font-semibold text-foreground dark:text-white">{checkInFooter}</span>
                     </li>
                   ) : null}
                   {checkOutFooter ? (
                     <li>
                       Check-out by{" "}
-                      <span className="font-semibold text-white">{checkOutFooter}</span>
+                      <span className="font-semibold text-foreground dark:text-white">{checkOutFooter}</span>
                     </li>
                   ) : null}
                 </ul>
@@ -224,16 +229,16 @@ export function PublicPortfolioFooter({ portfolio, onNavigate }: Props) {
         </div>
 
         {/* Bottom bar */}
-        <div className="mx-auto mt-14 flex max-w-6xl flex-col gap-6 border-t border-white/10 pt-10 sm:flex-row sm:items-center sm:justify-end">
-          <p className="flex items-center gap-2 text-xs text-zinc-500">
-            <Grid3x3 className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden />
+        <div className="mx-auto mt-14 flex max-w-6xl flex-col gap-6 border-t border-border pt-10 dark:border-white/10 sm:flex-row sm:items-center sm:justify-end">
+          <p className="flex items-center gap-2 text-xs text-muted dark:text-zinc-500">
+            <Grid3x3 className="h-4 w-4 shrink-0 text-muted dark:text-zinc-600" aria-hidden />
             <span>
               Website by{" "}
               <a
                 href="https://qimem-portfolio.vercel.app/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium text-zinc-400 underline-offset-4 transition-colors hover:text-white hover:underline"
+                className="font-medium text-foreground underline-offset-4 transition-colors hover:text-gold hover:underline dark:text-zinc-400 dark:hover:text-white"
               >
                 Qimem Solutions
               </a>
