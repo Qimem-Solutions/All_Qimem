@@ -17,6 +17,11 @@ type Props = {
 
 const TYPES = ["annual", "sick", "personal", "unpaid", "other"] as const;
 
+const REQUEST_KINDS = [
+  { value: "leave", label: "Leave" },
+  { value: "absence", label: "Absence" },
+] as const;
+
 export function HrmsLeaveClient({ tenantId, canManage, rows, employees }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -31,6 +36,7 @@ export function HrmsLeaveClient({ tenantId, canManage, rows, employees }: Props)
     const res = await createLeaveRequestAction({
       tenantId,
       employeeId: String(fd.get("employeeId")),
+      requestKind: String(fd.get("requestKind")),
       leaveType: String(fd.get("leaveType")),
       startDate: String(fd.get("startDate")),
       endDate: String(fd.get("endDate")),
@@ -71,8 +77,11 @@ export function HrmsLeaveClient({ tenantId, canManage, rows, employees }: Props)
       {canManage && employees.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">New leave request</CardTitle>
-            <CardDescription>Stored in leave_requests (pending until approved).</CardDescription>
+            <CardTitle className="text-base">New Request</CardTitle>
+            <CardDescription>
+              Choose Leave or Absence plus dates and type. Pending items show in the requests table below for hotel admins to
+              approve.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6" onSubmit={onCreate}>
@@ -86,6 +95,21 @@ export function HrmsLeaveClient({ tenantId, canManage, rows, employees }: Props)
                   {employees.map((e) => (
                     <option key={e.id} value={e.id}>
                       {e.full_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-zinc-400">
+                Category
+                <select
+                  name="requestKind"
+                  required
+                  defaultValue="leave"
+                  className="mt-1 h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm"
+                >
+                  {REQUEST_KINDS.map((k) => (
+                    <option key={k.value} value={k.value}>
+                      {k.label}
                     </option>
                   ))}
                 </select>
@@ -132,10 +156,11 @@ export function HrmsLeaveClient({ tenantId, canManage, rows, employees }: Props)
           {rows.length === 0 ? (
             <p className="text-sm text-zinc-500">No leave requests yet.</p>
           ) : (
-            <table className="w-full min-w-[800px] text-left text-sm">
+            <table className="w-full min-w-[920px] text-left text-sm">
               <thead>
                 <tr className="border-b border-border text-xs uppercase text-zinc-500">
                   <th className="pb-3 font-medium">Employee</th>
+                  <th className="pb-3 font-medium">Category</th>
                   <th className="pb-3 font-medium">Type</th>
                   <th className="pb-3 font-medium">Dates</th>
                   <th className="pb-3 font-medium">Status</th>
@@ -147,6 +172,9 @@ export function HrmsLeaveClient({ tenantId, canManage, rows, employees }: Props)
                 {rows.map((r) => (
                   <tr key={r.id} className="border-b border-border/60">
                     <td className="py-3 text-white">{r.employee_name ?? "—"}</td>
+                    <td className="py-3 whitespace-nowrap text-zinc-300">
+                      {r.request_kind === "absence" ? "Absence" : "Leave"}
+                    </td>
                     <td className="py-3 capitalize text-zinc-400">{r.leave_type}</td>
                     <td className="py-3 font-mono text-xs">
                       {r.start_date} → {r.end_date}

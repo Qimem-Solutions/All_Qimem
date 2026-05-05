@@ -18,6 +18,7 @@ async function srOrClient(tenantId: string): Promise<
 export type LeaveRequestRow = {
   id: string;
   employee_id: string;
+  request_kind: string;
   leave_type: string;
   start_date: string;
   end_date: string;
@@ -36,7 +37,9 @@ export async function fetchLeaveRequests(tenantId: string): Promise<{
 
   const { data: rows, error: qErr } = await db
     .from("leave_requests")
-    .select("id, employee_id, leave_type, start_date, end_date, status, reason, created_at")
+    .select(
+      "id, employee_id, request_kind, leave_type, start_date, end_date, status, reason, created_at",
+    )
     .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false });
 

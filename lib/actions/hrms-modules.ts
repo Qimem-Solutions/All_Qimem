@@ -202,6 +202,7 @@ export async function recordPunchAction(input: {
 export async function createLeaveRequestAction(input: {
   tenantId: string;
   employeeId: string;
+  requestKind: string;
   leaveType: string;
   startDate: string;
   endDate: string;
@@ -209,9 +210,12 @@ export async function createLeaveRequestAction(input: {
 }): Promise<Ok> {
   const gate = await dbOrAdmin(input.tenantId);
   if (!gate.ok) return { ok: false, error: gate.error };
+  const rawKind = input.requestKind.trim().toLowerCase();
+  const requestKind = rawKind === "absence" ? "absence" : "leave";
   const { error } = await gate.db.from("leave_requests").insert({
     tenant_id: input.tenantId,
     employee_id: input.employeeId,
+    request_kind: requestKind,
     leave_type: input.leaveType,
     start_date: input.startDate,
     end_date: input.endDate,
@@ -705,6 +709,7 @@ export async function upsertPayrollLineAction(input: {
   employeeId: string;
   grossCents: number;
   deductionsCents: number;
+  taxPercent?: number;
   deductionReason?: string;
 }): Promise<Ok> {
   const gate = await dbOrAdmin(input.tenantId);
@@ -751,14 +756,19 @@ export async function upsertPayrollLineAction(input: {
     }
   }
 
-  const net = input.grossCents - input.deductionsCents;
+  const safeGross = Math.max(0, Math.round(Number(input.grossCents) || 0));
+  const safeDeductions = Math.max(0, Math.round(Number(input.deductionsCents) || 0));
+  const rawTaxPercent = Number(input.taxPercent ?? 0);
+  const safeTaxPercent = Number.isFinite(rawTaxPercent) ? Math.max(0, Math.min(100, rawTaxPercent)) : 0;
+  const taxCents = safeTaxPercent <= 0 ? 0 : Math.round((safeGross * safeTaxPercent) / 100);
+  const net = safeGross - taxCents - safeDeductions;
   const { error } = await gate.db.from("payroll_lines").upsert(
     {
       tenant_id: input.tenantId,
       payroll_run_id: input.payrollRunId,
       employee_id: employeeId,
-      gross_cents: input.grossCents,
-      deductions_cents: input.deductionsCents,
+      gross_cents: safeGross,
+      deductions_cents: safeDeductions,
       deduction_reason: input.deductionReason?.trim() || null,
       net_cents: net,
     },

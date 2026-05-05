@@ -36,7 +36,8 @@ export default async function HrmsLeavePage() {
             Leave & absence
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500">
-            Create and approve leave requests. Data is stored in <code className="text-zinc-400">leave_requests</code>.
+            Submit leave or absence requests; hotel admins with HRMS access review and approve them in the table below.
+            Stored in <code className="text-zinc-400">leave_requests</code>.
           </p>
         </div>
         <HrmsLinkButton href="/hrms/time" variant="secondary">

@@ -222,6 +222,7 @@ export function HrmsPayrollClient({
       employeeId: draft.employeeId,
       grossCents: gross,
       deductionsCents: ded,
+      taxPercent: taxPercentNum,
       deductionReason: dedReason,
     });
     setLoading(false);
