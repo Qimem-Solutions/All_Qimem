@@ -939,6 +939,7 @@ export async function copyPriorWeekShiftsAction(input: {
     return { ok: false, error: "Invalid week date." };
   }
   const prevMon = addUtcDaysIso(mon, -7);
+  const prevSun = addUtcDaysIso(prevMon, 6);
 
   const { data: rows, error: qErr } = await gate.db
     .from("shifts")

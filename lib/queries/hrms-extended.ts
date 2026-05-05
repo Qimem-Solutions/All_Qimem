@@ -346,7 +346,7 @@ export async function fetchActiveEmployeesWithDept(tenantId: string): Promise<{
       .eq("tenant_id", tenantId)
       .eq("status", "active")
       .order("full_name", { ascending: true });
-    empsFinal = retry.data;
+    empsFinal = (retry.data ?? []).map((e) => ({ ...e, phone: null as string | null }));
     qErrFinal = retry.error;
   }
 
